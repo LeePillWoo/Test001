@@ -1,0 +1,487 @@
+/* 레이아웃: 한 화면짜리 세로 컬럼. 헤더(제목·점수) → 조작 버튼 → 보드 → 유약 단계표.
+   보드는 줄눈(grout) 위에 유약 타일을 올린 모습. 타일 색은 청자 → 청화 → 금채로 올라간다. */
+:root {
+  --bg: #eef1ec;
+  --fg: #1c2725;
+  --muted: #5d6b66;
+  --surface: #ffffff;
+  --line: #d3dbd5;
+  --grout: #b7c3bb;
+  --cell: #d3ddd5;
+  --accent: #1f4e8c;
+  --accent-fg: #ffffff;
+  --overlay: rgba(238, 241, 236, 0.86);
+
+  --font-display: 'Black Han Sans', 'Arial Black', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-body: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+
+  --board: min(calc(100vw - 32px), 440px);
+  --gap: calc(var(--board) * 0.028);
+  --size: calc((var(--board) - 5 * var(--gap)) / 4);
+  --radius: calc(var(--board) * 0.022);
+  --slide: 110ms;
+
+  /* 타일 유약: 두 테마 공통 */
+  --t2: #f7f5ee;
+  --t4: #e8ecd6;
+  --t8: #cde0c4;
+  --t16: #a6cbb1;
+  --t32: #7bb398;
+  --t64: #4f927a;
+  --t128: #8fb6dc;
+  --t256: #5f8fc7;
+  --t512: #3a6aac;
+  --t1024: #234a88;
+  --t2048: #c79a1e;
+  --tsuper: #2b2033;
+  --tile-ink: #2a3532;
+  --tile-ink-light: #fbfaf5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #121815;
+    --fg: #e5ebe7;
+    --muted: #93a39c;
+    --surface: #1b2420;
+    --line: #2c3833;
+    --grout: #26302c;
+    --cell: #313d38;
+    --accent: #7fa8e0;
+    --accent-fg: #0f1a2b;
+    --overlay: rgba(18, 24, 21, 0.86);
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #121815;
+  --fg: #e5ebe7;
+  --muted: #93a39c;
+  --surface: #1b2420;
+  --line: #2c3833;
+  --grout: #26302c;
+  --cell: #313d38;
+  --accent: #7fa8e0;
+  --accent-fg: #0f1a2b;
+  --overlay: rgba(18, 24, 21, 0.86);
+  color-scheme: dark;
+}
+
+[hidden] {
+  display: none !important;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(440px + 32px);
+  margin: 0 auto;
+  padding-inline: 16px;
+  padding-block: 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 헤더 */
+.top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.brand h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(44px, 14vw, 64px);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.brand h1 .seal {
+  color: var(--accent);
+}
+.brand p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.scores {
+  display: flex;
+  gap: 8px;
+}
+.score {
+  position: relative;
+  min-width: 76px;
+  padding: 6px 12px 8px;
+  border-radius: 10px;
+  background: var(--grout);
+  text-align: center;
+}
+.score .label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+.score .value {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.score .gain {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--accent);
+  pointer-events: none;
+  animation: gain 700ms ease-out forwards;
+}
+@keyframes gain {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-36px);
+    opacity: 0;
+  }
+}
+
+/* 조작줄 */
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+  flex: 1 1 180px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+}
+button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: transform 80ms ease, opacity 120ms ease;
+}
+button:active {
+  transform: scale(0.97);
+}
+button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+
+/* 보드 */
+.board {
+  position: relative;
+  width: var(--board);
+  height: var(--board);
+  max-width: 100%;
+  align-self: center;
+  border-radius: calc(var(--radius) * 1.6);
+  background: var(--grout);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+.board:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+.cells,
+.tiles {
+  position: absolute;
+  inset: var(--gap);
+}
+.cells {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--gap);
+}
+.cells span {
+  border-radius: var(--radius);
+  background: var(--cell);
+}
+
+.tile {
+  --r: 0;
+  --c: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--size);
+  height: var(--size);
+  transform: translate(
+    calc(var(--c) * (var(--size) + var(--gap))),
+    calc(var(--r) * (var(--size) + var(--gap)))
+  );
+  transition: transform var(--slide) ease-in-out;
+}
+.tile.consumed {
+  z-index: 0;
+}
+.tile .face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius);
+  font-family: var(--font-display);
+  font-size: calc(var(--size) * 0.44);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--tile-ink);
+  background: var(--tile-bg, var(--t2));
+  /* 유약 광택: 위쪽 하이라이트와 아래쪽 두께 */
+  box-shadow:
+    inset 0 calc(var(--size) * 0.04) 0 rgba(255, 255, 255, 0.35),
+    inset 0 calc(var(--size) * -0.05) 0 rgba(0, 0, 0, 0.12);
+}
+.tile[data-digits='3'] .face {
+  font-size: calc(var(--size) * 0.36);
+}
+.tile[data-digits='4'] .face {
+  font-size: calc(var(--size) * 0.28);
+}
+.tile[data-digits='5'] .face {
+  font-size: calc(var(--size) * 0.22);
+}
+
+.tile[data-v='2'] { --tile-bg: var(--t2); }
+.tile[data-v='4'] { --tile-bg: var(--t4); }
+.tile[data-v='8'] { --tile-bg: var(--t8); }
+.tile[data-v='16'] { --tile-bg: var(--t16); }
+.tile[data-v='32'] { --tile-bg: var(--t32); }
+.tile[data-v='64'] { --tile-bg: var(--t64); }
+.tile[data-v='128'] { --tile-bg: var(--t128); }
+.tile[data-v='256'] { --tile-bg: var(--t256); }
+.tile[data-v='512'] { --tile-bg: var(--t512); }
+.tile[data-v='1024'] { --tile-bg: var(--t1024); }
+.tile[data-v='2048'] { --tile-bg: var(--t2048); }
+.tile[data-v='super'] { --tile-bg: var(--tsuper); }
+.tile[data-v='32'] .face,
+.tile[data-v='64'] .face,
+.tile[data-v='256'] .face,
+.tile[data-v='512'] .face,
+.tile[data-v='1024'] .face,
+.tile[data-v='2048'] .face,
+.tile[data-v='super'] .face {
+  color: var(--tile-ink-light);
+}
+.tile[data-v='2048'] .face {
+  box-shadow:
+    inset 0 calc(var(--size) * 0.04) 0 rgba(255, 255, 255, 0.45),
+    inset 0 calc(var(--size) * -0.05) 0 rgba(0, 0, 0, 0.18),
+    0 0 calc(var(--size) * 0.3) rgba(199, 154, 30, 0.55);
+}
+
+.tile.spawned .face {
+  animation: spawn 160ms ease-out both;
+}
+.tile.merged {
+  z-index: 2;
+}
+.tile.merged .face {
+  animation: pop 180ms ease-out both;
+}
+@keyframes spawn {
+  from {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.8);
+  }
+  55% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 승리 / 게임오버 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  border-radius: inherit;
+  background: var(--overlay);
+  text-align: center;
+  animation: fade 240ms ease-out both;
+}
+.overlay h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(30px, 9vw, 42px);
+  line-height: 1.1;
+  text-wrap: balance;
+  color: var(--fg);
+}
+.overlay p {
+  margin: 0;
+  color: var(--muted);
+}
+.overlay .actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 유약 단계표 */
+.ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ladder h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+.ladder ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  gap: 4px;
+}
+.ladder li {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border-radius: 6px;
+  background: var(--tile-bg);
+  color: var(--tile-ink);
+  font-family: var(--font-display);
+  font-size: clamp(8px, 2.4vw, 11px);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.35;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.ladder li.reached {
+  opacity: 1;
+}
+.ladder li.top {
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.ladder li[data-v='32'],
+.ladder li[data-v='64'],
+.ladder li[data-v='256'],
+.ladder li[data-v='512'],
+.ladder li[data-v='1024'],
+.ladder li[data-v='2048'] {
+  color: var(--tile-ink-light);
+}
+.ladder li[data-v='2'] { --tile-bg: var(--t2); }
+.ladder li[data-v='4'] { --tile-bg: var(--t4); }
+.ladder li[data-v='8'] { --tile-bg: var(--t8); }
+.ladder li[data-v='16'] { --tile-bg: var(--t16); }
+.ladder li[data-v='32'] { --tile-bg: var(--t32); }
+.ladder li[data-v='64'] { --tile-bg: var(--t64); }
+.ladder li[data-v='128'] { --tile-bg: var(--t128); }
+.ladder li[data-v='256'] { --tile-bg: var(--t256); }
+.ladder li[data-v='512'] { --tile-bg: var(--t512); }
+.ladder li[data-v='1024'] { --tile-bg: var(--t1024); }
+.ladder li[data-v='2048'] { --tile-bg: var(--t2048); }
+.ladder p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --slide: 0ms;
+  }
+  .tile.spawned .face,
+  .tile.merged .face,
+  .overlay,
+  .score .gain {
+    animation: none;
+  }
+  .score .gain {
+    display: none;
+  }
+}
