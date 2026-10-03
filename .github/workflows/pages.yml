@@ -39,6 +39,8 @@ jobs:
           mkdir -p _site
           cp -r index.html src _site/
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
