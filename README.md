@@ -35,11 +35,10 @@ src/game.js         게임 규칙 (보드 상태, 이동, 합치기, 판정)
 src/app.js          렌더링, 애니메이션, 키보드/스와이프 입력, 저장
 src/style.css       스타일 (라이트/다크 테마)
 test/game.test.js   규칙 테스트
-.github/workflows/pages.yml   테스트 후 GitHub Pages 배포
+.github/workflows/test.yml    push와 PR마다 테스트 실행
 ```
 
-## 배포 (GitHub Pages)
+## 데모
 
-1. 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 바꿉니다.
-2. `main` 브랜치에 push(또는 PR 머지)하면 테스트를 통과한 뒤 자동 배포됩니다.
-3. 주소: `https://<사용자이름>.github.io/<저장소이름>/`
+비공개 저장소라서 GitHub Pages 대신 Claude 아티팩트로 띄워 두었습니다.
+https://claude.ai/artifact/FpoYdEWn4J9LJqX3v5pvZj
