@@ -1,0 +1,11 @@
+{
+  "name": "test001-2048",
+  "version": "1.0.0",
+  "private": true,
+  "description": "2048 puzzle game in plain HTML/CSS/JS",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "npx --yes serve -l 8080 ."
+  },
+  "license": "MIT"
+}

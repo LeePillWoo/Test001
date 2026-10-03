@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="청자에서 금채까지, 유약 타일을 합쳐 2048을 만드는 퍼즐 게임" />
+    <meta name="theme-color" content="#eef1ec" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121815" media="(prefers-color-scheme: dark)" />
+    <title>청자 2048</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600&display=swap"
+    />
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="top">
+        <div class="brand">
+          <h1>2048<span class="seal">.</span></h1>
+          <p>청자 에디션</p>
+        </div>
+        <div class="scores">
+          <div class="score" id="score">
+            <span class="label">점수</span>
+            <span class="value" id="score-value">0</span>
+          </div>
+          <div class="score">
+            <span class="label">최고</span>
+            <span class="value" id="best-value">0</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="bar">
+        <p class="hint">방향키나 스와이프로 밀어서 같은 숫자를 합치세요.</p>
+        <div class="actions">
+          <button class="btn-ghost" id="undo" type="button" disabled>되돌리기</button>
+          <button class="btn-primary" id="new-game" type="button">새 게임</button>
+        </div>
+      </div>
+
+      <div class="board" id="board" tabindex="0" aria-label="게임 보드. 방향키로 타일을 밉니다.">
+        <div class="cells" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="tiles" id="tiles" aria-live="off"></div>
+        <div class="overlay" id="overlay" role="dialog" aria-live="polite" hidden></div>
+      </div>
+
+      <section class="ladder" aria-labelledby="ladder-title">
+        <h2 id="ladder-title">유약 단계</h2>
+        <ol id="ladder"></ol>
+        <p id="ladder-note"></p>
+      </section>
+    </main>
+
+    <script src="src/game.js"></script>
+    <script src="src/app.js"></script>
+  </body>
+</html>
