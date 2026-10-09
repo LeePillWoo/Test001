@@ -13,6 +13,7 @@
     open      가닥마다 끝이 바깥 배경에 닿는지 (1 = 끝, 2 = 뿌리, 3 = 둘 다)
     fly       실루엣 밖 배경을 가로지르는 잔머리 곡선
     cross     목·가슴 피부 위를 가로지르는 가는 머리카락 곡선, crossW = 곡선마다 반폭(px)
+    ink       머리 안의 먹선 곡선 (다발 사이 어두운 가는 선)
 
 방법
     1. 결 방향: 휘도의 Sobel 기울기로 구조 텐서를 만들고 머리 마스크 안에서 평활(σ 6), 일관도²로 가중해
@@ -268,6 +269,16 @@ def regions(hair, skin, face, dress):
     return back, front, thin
 
 
+def ink_lines(img, hair):
+    """머리 안의 먹선(다발 사이 어두운 가는 선): 어두운 능선(헤시안) 뼈대를 이어 붙인 곡선."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    H = hessian_matrix(gray, sigma=1.2, order='rc', use_gaussian_derivatives=False)
+    l1, _ = hessian_matrix_eigvals(H)
+    m = np.where(hair, np.maximum(l1, 0), 0) > 0.02
+    paths = link_paths(trace_skeleton(skeletonize(m), min_len=6), gap=8, max_turn=0.5)
+    return [p for p in paths if path_len(p) >= 14]
+
+
 def cross_strands(img, hair, skin, face, dress, thin):
     """목·가슴을 가로지르는 가는 머리카락: 앞 영역의 가는 조각 뼈대 + 피부 위의 어두운 가는 능선."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
@@ -299,45 +310,88 @@ def path_len(p):
 
 
 def link_paths(paths, gap, max_turn):
-    """끊긴 곡선 조각을 잇는다: 끝점끼리 gap 안이고 방향이 이어지면 하나로 (가까운 쌍부터)."""
+    """끊긴 곡선 조각을 잇는다: 끝점끼리 gap 안이고 방향이 이어지면 하나로 (가까운 쌍부터, 탐욕적으로)."""
+    from scipy.spatial import cKDTree
     paths = [list(map(tuple, p)) for p in paths]
+    if len(paths) < 2:
+        return paths
 
-    def end_dir(p, at_end):
-        q = p[-1] if at_end else p[0]
-        r = p[max(0, len(p) - 7)] if at_end else p[min(len(p) - 1, 6)]
-        d = np.array(q, float) - np.array(r, float)
-        return np.array(q, float), d / (np.linalg.norm(d) + 1e-9)
+    def end_info(p, at_end):
+        q = np.array(p[-1] if at_end else p[0], float)
+        r = np.array(p[max(0, len(p) - 7)] if at_end else p[min(len(p) - 1, 6)], float)
+        d = q - r
+        return q, d / (np.linalg.norm(d) + 1e-9)
 
-    changed = True
-    while changed:
-        changed = False
-        best = None
-        for i in range(len(paths)):
-            for ei in (True, False):
-                pi, di = end_dir(paths[i], ei)
-                for j in range(len(paths)):
-                    if j == i:
-                        continue
-                    for ej in (True, False):
-                        pj, dj = end_dir(paths[j], ej)
-                        v = pj - pi
-                        dist = np.linalg.norm(v)
-                        if dist > gap or dist < 1e-6:
-                            continue
-                        u = v / dist
-                        # 나가는 방향과 잇는 방향, 상대가 들어오는 방향이 모두 비슷해야 한다
-                        if di @ u < math.cos(max_turn) or -(dj @ u) < math.cos(max_turn):
-                            continue
-                        if best is None or dist < best[0]:
-                            best = (dist, i, ei, j, ej)
-        if best:
-            _, i, ei, j, ej = best
-            a = paths[i] if ei else paths[i][::-1]
-            b = paths[j][::-1] if ej else paths[j]
-            merged = a + b
-            paths = [p for k, p in enumerate(paths) if k not in (i, j)] + [merged]
-            changed = True
-    return paths
+    ends = []  # (path, at_end)
+    pos = []
+    dirs = []
+    for i, p in enumerate(paths):
+        for e in (True, False):
+            q, d = end_info(p, e)
+            ends.append((i, e))
+            pos.append(q)
+            dirs.append(d)
+    pos = np.array(pos)
+    dirs = np.array(dirs)
+    cos_t = math.cos(max_turn)
+    pairs = []
+    for a, b in cKDTree(pos).query_pairs(gap):
+        if ends[a][0] == ends[b][0]:
+            continue
+        v = pos[b] - pos[a]
+        dist = np.linalg.norm(v)
+        if dist < 1e-6:
+            continue
+        u = v / dist
+        # 나가는 방향과 잇는 방향, 상대가 들어오는 방향이 모두 비슷해야 한다
+        if dirs[a] @ u >= cos_t and -(dirs[b] @ u) >= cos_t:
+            pairs.append((dist, a, b))
+    pairs.sort()
+    # 합집합-찾기로 이은 사슬을 만든다: 끝점마다 한 번만 이을 수 있다
+    link = {}
+    used = set()
+    parent = list(range(len(paths)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for _, a, b in pairs:
+        if a in used or b in used:
+            continue
+        pa, pb = find(ends[a][0]), find(ends[b][0])
+        if pa == pb:
+            continue
+        used.add(a)
+        used.add(b)
+        link[a] = b
+        link[b] = a
+        parent[pa] = pb
+    # 사슬 따라 붙이기. 끝점 번호: 2i = 경로 i의 끝, 2i+1 = 시작 (짝은 번호 ^ 1)
+    out = []
+    seen = set()
+    for i in range(len(paths)):
+        if i in seen:
+            continue
+        # 사슬의 머리를 찾아 거슬러 올라간다 (경로 i는 시작으로 들어오는 방향)
+        cur, enter = i, 2 * i + 1
+        while enter in link:
+            nb = link[enter]
+            if ends[nb][0] == i:
+                break
+            cur, enter = ends[nb][0], nb ^ 1
+        chain = []
+        while True:
+            seen.add(cur)
+            chain.extend(paths[cur] if enter == 2 * cur + 1 else paths[cur][::-1])
+            exit_ = enter ^ 1
+            if exit_ not in link or ends[link[exit_]][0] in seen:
+                break
+            cur, enter = ends[link[exit_]][0], link[exit_]
+        out.append(chain)
+    return out
 
 
 def refine_hair(img, hair):
@@ -356,7 +410,8 @@ def refine_hair(img, hair):
 
 # ── 잔머리 ────────────────────────────────────────────────
 def flyaways(img, hair, bg):
-    """머리 둘레 띠 안의 배경에서 가는 선(채널별 밝은·어두운 능선)을 골라 뼈대 곡선으로."""
+    """머리 둘레 띠 안의 배경에서 가는 선(채널별 밝은·어두운 능선)을 골라 뼈대 곡선으로.
+    밝은 덩어리(색종이·응원봉)의 테두리는 양옆 색이 크게 다르므로 버린다."""
     band = cv2.dilate(hair.astype(np.uint8), disk(80)).astype(bool) & bg
     band &= ~cv2.dilate(hair.astype(np.uint8), disk(1)).astype(bool)
     f = img.astype(np.float32) / 255.0
@@ -367,9 +422,30 @@ def flyaways(img, hair, bg):
         rs.append(np.maximum(-l2, 0))
         rs.append(np.maximum(l1, 0))
     ridge = np.where(band, np.max(np.stack(rs), 0), 0)
-    m = ridge > 0.055
+    m = ridge > 0.05
     m = cv2.morphologyEx(m.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)).astype(bool)
-    return trace_skeleton(skeletonize(m), min_len=18)
+    paths = link_paths(trace_skeleton(skeletonize(m), min_len=8), gap=9, max_turn=0.6)
+    soft = cv2.GaussianBlur(f, (0, 0), 1.0)
+    h, w = m.shape
+    out = []
+    for p in paths:
+        if path_len(p) < 22:
+            continue
+        a = np.array(p, np.float64)
+        # 그림 테두리를 따라가는 선은 버린다
+        if np.mean((a[:, 0] < 4) | (a[:, 1] < 4) | (a[:, 0] > w - 5) | (a[:, 1] > h - 5)) > 0.3:
+            continue
+        diffs = []
+        for i in range(2, len(a) - 2, 3):
+            t = a[i + 2] - a[i - 2]
+            t /= np.linalg.norm(t) + 1e-9
+            nrm = np.array([-t[1], t[0]])
+            q1 = np.clip(np.round(a[i] + nrm * 4), 0, [w - 1, h - 1]).astype(int)
+            q2 = np.clip(np.round(a[i] - nrm * 4), 0, [w - 1, h - 1]).astype(int)
+            diffs.append(np.abs(soft[q1[1], q1[0]] - soft[q2[1], q2[0]]).sum())
+        if diffs and np.median(diffs) < 0.35:
+            out.append(p)
+    return out
 
 
 def trace_skeleton(sk, min_len):
@@ -435,6 +511,7 @@ def main():
 
 
     fly = flyaways(img, hair, bg)
+    ink = [orient_root(p) for p in ink_lines(img, hair)]
     fly = [orient_root(f) for f in fly]
 
     # 바깥 배경: 머리카락 사이로 비치는 작은 구멍은 뺀다 (역광은 바깥 가장자리에서만)
@@ -468,6 +545,7 @@ def main():
         'outer': rings(outer, eps=1.5, min_area=200),
         'fly': [resample(smooth_path(f), 4.0) for f in fly],
         'cross': [resample(smooth_path(c), 4.0) for c in cross],
+        'ink': [resample(smooth_path(c), 5.0) for c in ink],
         'crossW': [round(w, 1) for w in cross_w],
     }
     js = ('// tools/proc_hair.py가 만든다. 직접 고치지 않는다.\n'
@@ -476,7 +554,7 @@ def main():
           + json.dumps(data, separators=(',', ':')) + ';\n')
     with open(OUT_JS, 'w') as f:
         f.write(js)
-    print('locks', len(locks), 'strands', len(strands), 'fly', len(fly), 'cross', len(cross),
+    print('locks', len(locks), 'strands', len(strands), 'fly', len(fly), 'cross', len(cross), 'ink', len(ink),
           'bytes', len(js), 'back rings', len(data['back']), 'front rings', len(data['front']))
 
     if args.debug:

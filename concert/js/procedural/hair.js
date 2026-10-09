@@ -16,6 +16,9 @@
   const STRAND_COPIES = 1; // 흐름선 조각 하나에 겹쳐 그릴 가는 가닥 수
   const STRAND_P = 0.5; // 가는 가닥을 그릴 확률 (낮을수록 다발의 평평한 셀 색이 드러난다)
   const INK_P = 0.3; // 결 먹선을 그릴 확률
+  const LEVEL_CAP = 0.88; // 다발·가닥 색이 램프에서 올라갈 수 있는 끝
+  const LOCK_W = [4.5, 5.5]; // 다발 리본 반폭(px): 최소, 더할 수 있는 폭
+  const MEASURED_INK_A = 0.8; // 원본에서 잰 먹선의 불투명도
 
   // ── 팔레트: 밝기 램프 (u = 0 그늘 → 1 가장 밝은 결) ──────────
   const RAMPS = {
@@ -25,10 +28,10 @@
       [0.16, '#2c1520'],
       [0.32, '#4a2630'],
       [0.46, '#6a3c44'],
-      [0.6, '#a85a58'],
-      [0.72, '#ec8a7c'],
-      [0.86, '#f9aa94'],
-      [1, '#fcdccc'],
+      [0.6, '#a85458'],
+      [0.72, '#ee7c7e'],
+      [0.86, '#f99c92'],
+      [1, '#fcd4c6'],
     ],
     // 오른쪽: 자홍 테두리빛
     pink: [
@@ -61,9 +64,10 @@
   // warm = 왼쪽 위에서 오는 연어·복숭아빛, pink = 오른쪽 자홍빛, violet = 그늘의 보랏빛, dark = 깊은 그늘
   const LIGHTS = [
     // 뒤에서 오는 역광 (배경 쪽 가장자리 띠)
-    [520, 380, 430, 'warm', 0.9, 80],
+    [500, 420, 400, 'warm', 0.95, 80],
+    [660, 170, 170, 'warm', 0.95, 60],
     [880, 60, 260, 'warm', 0.6, 38],
-    [230, 790, 170, 'warm', 0.7, 50],
+    [270, 760, 230, 'warm', 0.85, 60],
     [1080, 150, 150, 'pink', 0.7, 45],
     [1060, 140, 130, 'warm', 0.5, 45],
     [1160, 430, 250, 'pink', 0.95, 65],
@@ -133,9 +137,10 @@
   }
 
   // 밝기 단계 v(0..1)의 색. 역광은 다발을 램프 끝까지 올리고, 앞 조명은 갈색 중간톤까지만 올린다.
-  function shade(L, v, ramps) {
+  // cap = 램프에서 올라갈 수 있는 끝 (다발 색은 산호에서 멈추고, 복숭아·흰빛은 하이라이트 몫)
+  function shade(L, v, ramps, cap = 1) {
     const lit = 1 - (1 - L.warm) * (1 - L.pink);
-    const top = 0.44 + 0.6 * L.rim + 0.3 * L.fill - 0.25 * L.dark + 0.06 * L.n;
+    const top = Math.min(cap, 0.5 + 0.6 * L.rim + 0.3 * L.fill - 0.25 * L.dark + 0.06 * L.n);
     const u = Math.max(0, Math.min(1, Math.pow(v, 0.85) * top));
     let c = rampAt(ramps.warm, u);
     const pinkW = L.pink / (L.pink + L.warm + 1e-3);
@@ -306,9 +311,9 @@
         const m = pts[pts.length >> 1];
         // 두 갈래 분포: 밝은 다발 / 어두운 다발. 역광이 센 곳일수록 밝은 다발이 많다
         const la = grid.at(m[0], m[1]);
-        const pBright = 0.06 + 0.6 * la.rim;
-        const v = rng() < pBright ? 0.72 + rng() * 0.28 : 0.18 + rng() * 0.36;
-        out.push({ pts, v, w: 6 + rng() * 7 });
+        const pBright = 0.1 + 0.65 * la.rim + 0.1 * la.fill;
+        const v = rng() < pBright ? 0.74 + rng() * 0.22 : 0.14 + rng() * 0.36;
+        out.push({ pts, v, w: LOCK_W[0] + rng() * LOCK_W[1] });
       }
     }
     return out;
@@ -363,7 +368,7 @@
     g.clip(clip, 'evenodd');
 
     // 1. 바탕: 어두운 단계. 바깥 가장자리 띠에서는 옅게 비워 배경이 가닥 사이로 비치게 한다
-    g.fillStyle = pats[1];
+    g.fillStyle = pats[2];
     g.fillRect(0, 0, W, H);
     g.globalCompositeOperation = 'destination-out';
     g.drawImage(maps.edge, 0, 0, W, H);
@@ -407,8 +412,8 @@
             g.fill(path);
           }
           // 하이라이트: 밝은 다발 위에 많이, 앞 조명이 닿는 어두운 다발 위에도 가늘게
-          const pHl = v > 0.66 ? 0.7 : 0.02 + 0.5 * la.fill;
-          if (drawn && rng() < pHl) hl.push({ pts, off, w: 0.5 + rng() * 1.1, a: 0.7 + 0.3 * rng() });
+          const pHl = v > 0.66 ? 0.9 : 0.04 + 0.5 * la.fill;
+          if (drawn && rng() < pHl) hl.push({ pts, off, w: 0.6 + rng() * 1.4, a: 0.75 + 0.25 * rng() });
         }
       }
     }
@@ -450,6 +455,16 @@
         g.globalAlpha = 0.55 + 0.4 * rng();
         g.fill(path);
       }
+    }
+    // 7. 원본에서 잰 먹선: 다발 경계의 어두운 선 (끝은 가늘게)
+    g.fillStyle = INK;
+    for (const flat of D.ink || []) {
+      const pts = slicePts(flat, 0, flat.length / 2);
+      const wl = 0.6 + rng() * 0.5;
+      const path = new Path2D();
+      addRibbon(path, pts, (s) => wl * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.9 + 0.05)), 0.5));
+      g.globalAlpha = MEASURED_INK_A * (0.75 + 0.25 * rng());
+      g.fill(path);
     }
     g.restore();
     return c;
@@ -531,7 +546,9 @@
 
       // 밝기 단계별 색 지도 + 하이라이트 + 잔머리 + 가장자리 비우기
       const levels = [];
-      for (let k = 0; k < LEVELS; k++) levels.push(makeMap(env, grid, (L) => shade(L, k / (LEVELS - 1), ramps)));
+      for (let k = 0; k < LEVELS; k++) {
+        levels.push(makeMap(env, grid, (L) => shade(L, k / (LEVELS - 1), ramps, LEVEL_CAP)));
+      }
       const maps = {
         levels,
         // 하이라이트: 빛이 닿는 곳일수록 밝다. 연어빛 구역은 복숭아·흰빛까지, 자홍 구역은 진한 산호빛에서 멈춘다

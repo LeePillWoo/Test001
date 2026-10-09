@@ -33,7 +33,7 @@ OUT_JS = os.path.join(HERE, '..', 'js', 'procedural', 'data', 'body.js')
 # ext:  가려진 곳(hide)과 겹치는 만큼 부위를 넓힌다 — 머리카락 밑으로 이어지는 몸.
 # 왼쪽 어깨끈 중심선(팔과 몸통의 경계)
 STRAP_L = [(641, 470), (651, 510), (658, 535), (661, 570), (657, 600), (647, 630), (633, 670), (623, 690),
-           (608, 710), (591, 730), (582, 745)]
+           (608, 710), (594, 728)]
 COMPS = {
     'torso': dict(
         kind='skin',
@@ -186,7 +186,8 @@ def edges(mask, covered, min_len=24, eps=1.0):
         pts = c.reshape(-1, 2)
         vis = frac[pts[:, 1], pts[:, 0]] < 0.45
         h, w = mask.shape
-        vis &= (pts[:, 0] > 1) & (pts[:, 1] > 1) & (pts[:, 0] < w - 2) & (pts[:, 1] < h - 2)  # 화면 가장자리는 선이 아니다
+        # 화면 가장자리는 선이 아니다
+        vis &= (pts[:, 0] > 1) & (pts[:, 1] > 1) & (pts[:, 0] < w - 2) & (pts[:, 1] < h - 2)
         if vis.all():
             runs = [np.vstack([pts, pts[:1]])]
         else:
@@ -258,7 +259,8 @@ def build(debug=None):
         near = cv2.dilate(vis.astype(np.uint8), ell(MARGIN)).astype(bool)
         soft = hide & m['hair']
         ext = poly(c['ext'], shape)
-        full = vis | (closed & hide & part) | (ext & hide & ~soft) | (ext & soft & near) | (infront & part & ext)
+        full = vis | (closed & hide & part) | (ext & hide & ~soft) | (ext & soft & near)
+        full |= infront & part & ext
         # 몸 부위 안의 구멍은 늘 머리카락 그림자다. outline이 크면 가닥 하나하나의 들쭉날쭉함을 지운다
         full = ndi.binary_fill_holes(smooth(full, sigma=c.get('outline', 1.6)))
         comps[name] = full

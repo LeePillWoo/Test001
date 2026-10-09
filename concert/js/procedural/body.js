@@ -36,7 +36,6 @@
     pink: '#ff5cb4',
     magenta: '#f02cb0',
     blue: '#7e9cff',
-    red: '#ff4a7c',
   };
 
   // ── 스팽글 조명 구역: [x, y, 반지름, 색 이름, 세기] ──
@@ -83,14 +82,30 @@
   // ── 스팽글 행 안내선 (원본 좌표). 이웃 안내선 사이를 행 간격으로 보간해 행을 만든다 ──
   // 몸판: 위는 목선을 따라 휘고, 가슴 아래에서 평평해졌다가 허리에서 접혀 촘촘해지고,
   // 아래쪽은 몸이 기운 쪽으로 기운다.
+  // 안내선: { pitch: 행 안에서 스팽글 간격(px), stretch: 행 방향 납작함, pts: 곡선 }
   const ROWS = {
     dress: {
       pitch: 8.5,
       guides: [
-        { pitch: 7.4, pts: [[470, 748], [590, 758], [650, 783], [720, 802], [780, 815], [840, 805], [900, 785], [975, 757]] },
-        { pitch: 7.8, pts: [[450, 800], [560, 828], [640, 858], [720, 872], [800, 870], [870, 850], [970, 820]] },
-        { pitch: 8.6, pts: [[420, 900], [520, 942], [600, 960], [680, 962], [760, 950], [850, 925], [960, 895]] },
-        { pitch: 6, stretch: 1.7, pts: [[380, 990], [470, 1015], [560, 1036], [640, 1022], [720, 1004], [820, 990]] },
+        {
+          pitch: 7.4,
+          pts: [[470, 748], [590, 758], [650, 783], [720, 802], [780, 815], [840, 805], [900, 785],
+            [975, 757]],
+        },
+        {
+          pitch: 7.8,
+          pts: [[450, 800], [560, 828], [640, 858], [720, 872], [800, 870], [870, 850], [970, 820]],
+        },
+        {
+          pitch: 8.6,
+          pts: [[420, 900], [520, 942], [600, 960], [680, 962], [760, 950], [850, 925], [960, 895]],
+        },
+        // 허리의 접힌 띠: 촘촘하고 행 방향으로 납작하다
+        {
+          pitch: 6,
+          stretch: 1.7,
+          pts: [[380, 990], [470, 1015], [560, 1036], [640, 1022], [720, 1004], [820, 990]],
+        },
         { pitch: 8.4, pts: [[340, 1080], [450, 1086], [560, 1072], [640, 1052]] },
         { pitch: 9, pts: [[250, 1270], [400, 1252], [490, 1238], [600, 1224]] },
       ],
@@ -110,7 +125,7 @@
   // 목선(드레스 위 가장자리)과 겨드랑이 쪽 검은 안감
   const NECKLINE = [[540, 744], [590, 752], [630, 770], [680, 786], [730, 798], [780, 809], [820, 803],
     [860, 794], [905, 780], [960, 752]];
-  const LINING = [[572, 726], [600, 722], [612, 738], [632, 758], [652, 773], [600, 778], [560, 780]];
+  const LINING = [[572, 722], [592, 722], [606, 740], [620, 756], [632, 772], [600, 778], [565, 778]];
 
   // 치마에 박힌 큰 원형 장식(라인스톤): x, y, 반지름
   const JEWELS = [[128, 956, 7], [69, 1022, 6]];
@@ -131,7 +146,8 @@
     // 가슴골 그늘
     [[[752, 777], [800, 750], [797, 776], [787, 800], [770, 799]], 2, 2.5],
     // 목 오른쪽 옆면(중간 그늘)
-    [[[858, 500], [904, 488], [946, 452], [954, 470], [920, 518], [890, 560], [872, 584], [850, 548]], 2, 1.2],
+    [[[858, 500], [904, 488], [946, 452], [954, 470], [920, 518], [890, 560], [872, 584], [850, 548]], 2,
+      1.2],
     // 턱 밑에 드리운 그늘
     [[[790, 430], [830, 454], [868, 472], [906, 468], [948, 450], [934, 474], [904, 490], [876, 500],
       [854, 506], [836, 490], [814, 462]], 3, 0.8],
@@ -142,6 +158,8 @@
     [[[606, 536], [607, 540]], 1.4],
     [[[792, 520], [794, 522]], 1.6],
     [[[688, 690], [692, 700]], 1.2],
+    // 안감 가장자리에 걸린 빛
+    [[[594, 725], [601, 733], [607, 741]], 1.6],
   ];
 
   // ── 손으로 그린 안쪽 선: [점들, 굵기] (빗장뼈·가슴골·겨드랑이·팔꿈치 주름) ──
@@ -149,7 +167,7 @@
     [[[801, 750], [793, 772], [785, 797]], 1.4],
     [[[750, 777], [763, 789], [778, 797]], 1.1],
     [[[820, 666], [838, 650], [858, 640]], 1.4],
-    [[[598, 690], [592, 716], [586, 742]], 1.8],
+    [[[590, 676], [585, 700], [579, 722]], 1.6],
     [[[368, 1030], [376, 1050], [380, 1072]], 1.2],
   ];
 
@@ -211,7 +229,9 @@
   }
   function polyLength(pts) {
     let L = 0;
-    for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    for (let i = 1; i < pts.length; i++) {
+      L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    }
     return L;
   }
   // 호 길이 비율 s(0..1) 위치. pts는 촘촘하게 다시 찍은 곡선
@@ -220,7 +240,9 @@
     const f = Math.min(Math.max(s, 0), 1) * n;
     const i = Math.min(Math.floor(f), n - 1);
     const u = f - i;
-    return [dense[i][0] + (dense[i + 1][0] - dense[i][0]) * u, dense[i][1] + (dense[i + 1][1] - dense[i][1]) * u];
+    const p = dense[i];
+    const q = dense[i + 1];
+    return [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u];
   }
 
   // 폭이 w(u)(u: 0..1 호 길이 비율)인 띠 모양. off는 중심선을 옆으로 미는 양(+는 진행 방향 왼쪽)
@@ -385,8 +407,7 @@
   // ── 드레스 ─────────────────────────────────────────────
   function makeRows(spec) {
     const guides = spec.guides.map((gd) => {
-      const pts = Array.isArray(gd) ? gd : gd.pts;
-      const dense = resample(chaikin(pts, false, 3), 2);
+      const dense = resample(chaikin(gd.pts, false, 3), 2);
       return { dense, len: polyLength(dense), pitch: gd.pitch || spec.pitch, stretch: gd.stretch || 1 };
     });
     const rows = [];
@@ -434,7 +455,8 @@
     I = Math.max(0, I) * (0.7 + 0.6 * (noise(x * 0.012, y * 0.012) * 0.5 + 0.5));
     const base = SEQ.rgb.lavender;
     const k = 0.05;
-    const col = [(r + base[0] * k) / (wsum + k), (gg + base[1] * k) / (wsum + k), (b + base[2] * k) / (wsum + k)];
+    const n = wsum + k;
+    const col = [(r + base[0] * k) / n, (gg + base[1] * k) / n, (b + base[2] * k) / n];
     return { I, col };
   }
 
@@ -463,9 +485,8 @@
         const fold = C.smoothstep(-0.6, 0.4, noise(s * 3.1 + 17.3, j * 0.21 + row.f));
         // 행을 따라 이어지는 반짝임 줄무늬(이웃 스팽글끼리 닮게)
         const streak = noise(s * 14 + j * 0.37, j * 0.9) * 0.5 + 0.5;
-        // 밝게 보일 확률 p와 이 스팽글의 각도 u: u < p면 반짝인다. p - u가 클수록 희게.
+        // 밝게 보일 확률 p와 이 스팽글의 기울기(facet): facet < p면 반짝인다. 차이가 클수록 희게.
         const p = C.clamp(P_GAIN * L.I * (0.7 + 0.45 * fold) * (0.75 + 0.5 * streak), 0, 0.98);
-        const u = facet;
         // 스팽글마다 받는 조명이 조금씩 달라 분홍·파랑으로 물든 것이 섞인다
         const hue = rng();
         const col =
@@ -476,12 +497,12 @@
               : L.col;
         let fill;
         let b2 = 0;
-        if (u < p) {
-          b2 = C.clamp((p - u) / 0.35, 0, 1);
+        if (facet < p) {
+          b2 = C.clamp((p - facet) / 0.35, 0, 1);
           fill = b2 < 0.45 ? C.rgba(mix3(dim, col, 0.55 + b2), 0.95) : C.rgba(mix3(col, white, b2 - 0.2), 1);
         } else {
           // 빛을 비껴 받은 스팽글: 조명 색이 살짝 밴 어두운 점으로 격자 결이 늘 보이게
-          const d = C.clamp((u - p) / 0.5, 0, 1);
+          const d = C.clamp((facet - p) / 0.5, 0, 1);
           fill = C.rgba(mix3(dim, col, 0.45 * (1 - d) + 0.1), 0.85 - 0.35 * d);
         }
         const rad = row.pitch * SEQ_R * (0.75 + 0.35 * b2 + rj * 0.15);
@@ -519,7 +540,7 @@
         }
         // 움직일 때 반짝일 후보와, 빛줄기가 지나갈 때 밝아질 하이라이트 판
         if (b2 > 0.35) {
-          if (facet < 0.16) fx.twinkles.push([x, y, rad * 2.6, C.rgbToHex(mix3(col, white, 0.5)), rng()]);
+          if (facet < 0.16) fx.twinkles.push([x, y, rad * 2.6, rng()]);
           fx.spec.fillStyle = C.rgba(mix3(col, white, 0.4), b2);
           fx.spec.beginPath();
           fx.spec.arc(x, y, rad * 1.1, 0, Math.PI * 2);
@@ -578,7 +599,7 @@
     g.restore();
   }
 
-  function drawFabric(g, env, path, name, opts) {
+  function drawFabric(g, env, path, opts) {
     const C = env.core;
     g.save();
     g.clip(path, 'evenodd');
@@ -659,12 +680,15 @@
         cel: TORSO_CEL,
         rim: [[960, 700, 160, '#ff70b0', 0.35]],
       });
-      drawSkin(g, env, shapes, 'waist', { grad: [180, 860, 320, 1000], rim: [[200, 880, 80, '#ff6aa0', 0.4]] });
+      drawSkin(g, env, shapes, 'waist', {
+        grad: [180, 860, 320, 1000],
+        rim: [[200, 880, 80, '#ff6aa0', 0.4]],
+      });
 
       // 2) 드레스: 몸판, 치마, 가방
       const spec = env.makeCanvas(W, H);
       const fx = { sparkles: [], twinkles: [], spec: spec.getContext('2d') };
-      drawFabric(g, env, shapes.dress.path, 'dress', {
+      drawFabric(g, env, shapes.dress.path, {
         sheen: [
           [700, 830, 160, DRESS.sheen, 0.35],
           [600, 1000, 140, DRESS.violet, 0.2],
@@ -674,7 +698,7 @@
         ],
       });
       drawSequins(g, env, shapes.dress.path, 'dress', rng, noise, fx);
-      drawFabric(g, env, shapes.skirt.path, 'skirt', {
+      drawFabric(g, env, shapes.skirt.path, {
         sheen: [
           [100, 1000, 170, DRESS.sheen, 0.4],
           [20, 1140, 120, '#1a2060', 0.4],
@@ -713,7 +737,9 @@
 
       // 드레스 윤곽선
       for (const name of ['dress', 'skirt', 'sash']) {
-        for (const r of D.edges[name] || []) inkLine(g, chaikin(flat(r), false, 2), 2.2, DRESS.line, noise, 13, false);
+        for (const r of D.edges[name] || []) {
+          inkLine(g, chaikin(flat(r), false, 2), 2.2, DRESS.line, noise, 13, false);
+        }
       }
 
       // 3) 앞쪽 팔
@@ -731,11 +757,15 @@
         [[0.85, 0.35], '#ff7eb0', 14, 0.3],
       ];
       const tmp = env.makeCanvas(W, H);
-      for (const name of ['fore', 'waist', 'arm']) rimLight(g, env, shapes[name], D.edges[name] || [], RIM, tmp);
+      for (const name of ['fore', 'waist', 'arm']) {
+        rimLight(g, env, shapes[name], D.edges[name] || [], RIM, tmp);
+      }
 
       // 4) 피부 윤곽선과 안쪽 선
       for (const name of ['fore', 'torso', 'waist', 'arm']) {
-        for (const r of D.edges[name] || []) inkLine(g, chaikin(flat(r), false, 2), 2.0, SKIN.line, noise, 7, false);
+        for (const r of D.edges[name] || []) {
+          inkLine(g, chaikin(flat(r), false, 2), 2.0, SKIN.line, noise, 7, false);
+        }
       }
       for (const [pts, w] of INNER_LINES) inkLine(g, pts, w, C.rgba(SKIN.line, 0.75), noise, 3, true);
 
@@ -745,12 +775,10 @@
       g.fill(ribbon(strap, (u) => 7 + 2 * u * u, 0));
       g.fillStyle = C.rgba('#6a5aa8', 0.75);
       g.fill(ribbon(strap, (u) => 2.2 * Math.sin(Math.PI * Math.min(1, u * 1.15)), -2.4));
-      g.strokeStyle = C.rgba('#05030a', 0.8);
-      g.lineWidth = 0.8;
-      g.stroke(ribbon(strap, (u) => 7 + 2 * u * u, 0));
       // 어깨·빗장뼈의 작은 윤기
-      g.strokeStyle = C.rgba('#ffffff', 0.85);
+      g.strokeStyle = C.rgba('#fffaf4', 0.8);
       g.lineCap = 'round';
+      g.lineJoin = 'round';
       for (const [pts, w] of SHINES) {
         g.lineWidth = w;
         g.beginPath();
@@ -758,7 +786,7 @@
         g.stroke();
       }
 
-      // 6) 반짝이 별빛
+      // 6) 움직일 때 쓸 것: 별빛 스프라이트, 반짝일 스팽글, 빛줄기가 쓸고 갈 하이라이트 판
       // 하이라이트 판은 드레스 안쪽만 (팔·피부가 덮은 곳은 지운다)
       const sg = fx.spec;
       sg.globalCompositeOperation = 'destination-in';
@@ -768,9 +796,6 @@
       sg.lineWidth = 14;
       sg.stroke(new Path2D(C.smoothPath(NECKLINE)));
       sg.fill(new Path2D(C.smoothPath(LINING, true)));
-      const specAll = env.makeCanvas(W, H);
-      const sa = specAll.getContext('2d');
-      sa.drawImage(spec, 0, 0);
 
       const prng = env.rng('body-anim');
       const stars = fx.sparkles.map(([x, y, size, col]) => ({
@@ -788,8 +813,8 @@
       };
       const twinkles = fx.twinkles
         .filter(([x, y]) => x >= 0 && y >= 0 && x < W && y < H && lum(x, y) > 120)
-        .map(([x, y, r, col, u]) => ({ x, y, r, w: 2 + u * 5, ph: u * 40 }));
-      return { canvas, stars, twinkles, spec: specAll, dot: dotSprite(env), tmp: env.makeCanvas(W, H) };
+        .map(([x, y, r, u]) => ({ x, y, r, w: 2 + u * 5, ph: u * 40 }));
+      return { canvas, stars, twinkles, spec, dot: dotSprite(env), tmp: env.makeCanvas(W, H) };
     },
 
     draw(ctx, state, t) {
