@@ -1,12 +1,16 @@
 // 절차적 드로잉 레이어: hair — 머리카락 전부.
-// 기하(실루엣, 결을 따라 그은 다발·가닥 흐름선, 잔머리)는 tools/proc_hair.py가 원본에서 잰 data/hair.js를 쓴다.
-// 색은 원본 화소를 읽지 않는다: 팔레트 램프 + 손으로 잰 조명 구역 + 역광 규칙(바깥 배경 쪽 가장자리일수록
-// 밝다) + 노이즈 + 다발 단위 난수로 정한다.
+// 기하(실루엣, 결을 따라 그은 다발·가닥 흐름선, 먹선, 잔머리)는 tools/proc_hair.py가 원본에서 잰
+// data/hair.js를 쓴다. 색은 원본 화소를 읽지 않는다: 팔레트 램프 + 손으로 잰 조명 구역 + 역광 규칙
+// (바깥 배경 쪽 가장자리일수록 밝다) + 노이즈 + 다발 단위 난수로 정한다.
 //
 // 칠하는 순서 (애니메이션 일러스트처럼)
-//   바탕(가장자리는 옅게) → 다발 리본(셀 셰이딩, 뿌리 굵고 끝 뾰족) → 가는 가닥 → 하이라이트 → 먹선
+//   바탕(가장자리는 옅게) → 다발 리본(셀 셰이딩, 뿌리 굵고 끝 뾰족) → 가는 가닥 → 하이라이트
+//   → 빛 쪽 다발 가장자리 → 먹선(다발 경계, 결, 원본에서 잰 선)
 // 정적인 부분은 prepare에서 뒤(drawBack)·앞(drawFront) 두 장으로 굽는다.
-// 매 프레임 그리는 것: 흩날리는 가닥 끝과 잔머리(끝으로 갈수록 흔들림), 무대 조명에 맞춰 일렁이는 테두리빛.
+// 매 프레임 그리는 것: 흩날리는 가닥 끝과 잔머리·목 위 가닥(끝으로 갈수록 흔들림), 일렁이는 테두리빛.
+//
+// 디버그 주소 옵션: hairmap=0..6|hl|fly|edge|rim|fill|pink… (색 지도나 조명 값을 실루엣에 칠해 봄),
+//   hairext=0 (몸 밑으로 이어 그리지 않음), hairtime=1 (준비 단계별 시간을 콘솔 경고로)
 (function () {
   'use strict';
   const P = (window.ConcertProc = window.ConcertProc || {});
@@ -18,7 +22,13 @@
   const INK_P = 0.3; // 결 먹선을 그릴 확률
   const LEVEL_CAP = 0.88; // 다발·가닥 색이 램프에서 올라갈 수 있는 끝
   const LOCK_W = [4.5, 5.5]; // 다발 리본 반폭(px): 최소, 더할 수 있는 폭
-  const MEASURED_INK_A = 0.8; // 원본에서 잰 먹선의 불투명도
+  const MEASURED_INK_A = 1; // 원본에서 잰 먹선의 불투명도
+  const INK_W = 1.2; // 원본에서 잰 먹선 반폭에 곱하는 값
+  const GAP_W = [0.4, 0.4]; // 틈을 건너는 가닥의 반폭(px): 최소, 더할 수 있는 폭
+  const GAP_P = 0.4; // 틈을 건너는 가닥을 그릴 확률
+  const GAMMA = 0.55; // 밝기 단계 → 램프 위치의 휨 (클수록 어두운 다발은 어둡게 남고 밝은 다발만 오른다)
+  const LOOSE_LEN = 30; // 역광 가장자리에서 흩날리는 끝을 더 늘일 수 있는 길이(px)
+  const EDGE_P = 0.8; // 빛을 받는 다발 가장자리에 밝은 띠를 그릴 확률 (빛 세기에 곱한다)
 
   // ── 팔레트: 밝기 램프 (u = 0 그늘 → 1 가장 밝은 결) ──────────
   const RAMPS = {
@@ -71,18 +81,21 @@
     [1080, 150, 150, 'pink', 0.7, 45],
     [1060, 140, 130, 'warm', 0.5, 45],
     [1160, 430, 250, 'pink', 0.95, 65],
+    [1190, 600, 260, 'pink', 0.9, 95],
     [1150, 880, 220, 'pink', 0.85, 35],
     [1000, 1150, 260, 'pink', 0.35, 20],
     // 앞에서 오는 무대 조명 (얼굴 둘레 머리, 오른쪽 덩어리 바깥 결)
-    [890, 160, 210, 'warm', 0.45, 0],
-    [880, 150, 60, 'warm', 0.5, 0],
+    [900, 150, 200, 'warm', 0.65, 0],
     [990, 220, 60, 'pink', 0.6, 0],
     [690, 230, 120, 'warm', 0.3, 0],
     [640, 480, 100, 'warm', 0.5, 0],
-    [520, 440, 90, 'warm', 0.45, 0],
-    [770, 540, 80, 'warm', 0.55, 0],
+    [540, 450, 130, 'warm', 0.55, 0],
+    [760, 540, 110, 'warm', 0.6, 0],
     [1060, 260, 120, 'pink', 0.55, 0],
-    [1170, 520, 90, 'pink', 0.6, 0],
+    [1150, 250, 110, 'pink', 0.85, 0],
+    [1050, 150, 100, 'warm', 0.6, 0],
+    [1160, 540, 100, 'pink', 0.85, 0],
+    [700, 520, 70, 'warm', 0.5, 0],
     [1170, 720, 70, 'pink', 0.4, 0],
     [1000, 860, 70, 'pink', 0.5, 0],
     // 그늘의 보랏빛과 깊은 그늘
@@ -140,11 +153,13 @@
   // cap = 램프에서 올라갈 수 있는 끝 (다발 색은 산호에서 멈추고, 복숭아·흰빛은 하이라이트 몫)
   function shade(L, v, ramps, cap = 1) {
     const lit = 1 - (1 - L.warm) * (1 - L.pink);
-    const top = Math.min(cap, 0.5 + 0.6 * L.rim + 0.3 * L.fill - 0.25 * L.dark + 0.06 * L.n);
-    const u = Math.max(0, Math.min(1, Math.pow(v, 0.85) * top));
+    const top = Math.min(cap, 0.36 + 0.85 * L.rim + 0.3 * L.fill - 0.25 * L.dark + 0.06 * L.n);
+    const u = Math.max(0, Math.min(1, Math.pow(v, GAMMA) * top));
     let c = rampAt(ramps.warm, u);
     const pinkW = L.pink / (L.pink + L.warm + 1e-3);
-    c = mix3(c, rampAt(ramps.pink, u), pinkW * Math.min(1, L.pink * 2));
+    // 자홍빛은 밝은 결에만 물든다 (그늘은 갈색·보랏빛 그대로)
+    const pinkK = pinkW * Math.min(1, L.pink * 2) * (0.25 + 0.75 * smooth(0.35, 0.7, u));
+    c = mix3(c, rampAt(ramps.pink, u), pinkK);
     return mix3(c, rampAt(ramps.violet, u), L.violet * (1 - lit) * 0.75);
   }
 
@@ -312,7 +327,7 @@
         // 두 갈래 분포: 밝은 다발 / 어두운 다발. 역광이 센 곳일수록 밝은 다발이 많다
         const la = grid.at(m[0], m[1]);
         const pBright = 0.1 + 0.65 * la.rim + 0.1 * la.fill;
-        const v = rng() < pBright ? 0.74 + rng() * 0.22 : 0.14 + rng() * 0.36;
+        const v = rng() < pBright ? 0.72 + rng() * 0.22 : 0.26 + rng() * 0.34;
         out.push({ pts, v, w: LOCK_W[0] + rng() * LOCK_W[1] });
       }
     }
@@ -351,7 +366,12 @@
     };
   }
 
+  // 폭 윤곽들 (s = 0 뿌리 → 1 끝)
   const lockWidth = (L) => (s) => L.w * Math.sqrt(Math.min(1, s / 0.15 + 0.1)) * Math.pow(1 - s, 0.7);
+  // 양 끝이 가는 가닥: 시작을 조금 잘라(a, b) 뿌리 쪽이 덜 뾰족하게, p가 작을수록 통통하다
+  const taper = (w, a, b, p) => (s) => w * Math.pow(Math.sin(Math.PI * Math.min(1, s * a + b)), p);
+  // [s0, s1] 구간에만 있는 가는 띠
+  const span = (w, s0, s1) => (s) => (s < s0 || s > s1 ? 0 : w * Math.sin((Math.PI * (s - s0)) / (s1 - s0)));
 
   // ── 굽기: 정적인 머리 한 장 ─────────────────────────────
   function renderHair(env, D, maps, grid, clip) {
@@ -406,14 +426,14 @@
           v = Math.min(1, Math.max(0, v));
           if (drawn) {
             const path = new Path2D();
-            addRibbon(path, pts, (s) => w0 * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.85 + 0.08)), 0.6), off);
+            addRibbon(path, pts, taper(w0, 0.85, 0.08, 0.6), off);
             g.globalAlpha = 0.8 + 0.2 * rng();
             g.fillStyle = level(v);
             g.fill(path);
           }
           // 하이라이트: 밝은 다발 위에 많이, 앞 조명이 닿는 어두운 다발 위에도 가늘게
-          const pHl = v > 0.66 ? 0.9 : 0.04 + 0.5 * la.fill;
-          if (drawn && rng() < pHl) hl.push({ pts, off, w: 0.6 + rng() * 1.4, a: 0.75 + 0.25 * rng() });
+          const pHl = v > 0.66 ? 0.7 : 0.02 + 0.5 * la.fill + 0.18 * la.violet;
+          if (drawn && rng() < pHl) hl.push({ pts, off, w: 0.5 + rng() * 1.1, a: 0.7 + 0.3 * rng() });
         }
       }
     }
@@ -424,8 +444,35 @@
       const path = new Path2D();
       const s0 = rng() * 0.3;
       const s1 = 0.6 + rng() * 0.4;
-      addRibbon(path, h.pts, (s) => (s < s0 || s > s1 ? 0 : h.w * Math.sin((Math.PI * (s - s0)) / (s1 - s0))), h.off);
+      addRibbon(path, h.pts, span(h.w, s0, s1), h.off);
       g.globalAlpha = h.a;
+      g.fill(path);
+    }
+
+    // 4b. 다발 가장자리 빛: 빛 쪽을 향한 다발 가장자리에 밝은 띠 (연어빛은 왼쪽 위, 자홍빛은 오른쪽에서)
+    g.fillStyle = mapPattern(g, maps.hl);
+    for (const L of locks) {
+      const n = L.pts.length;
+      const m = L.pts[n >> 1];
+      const la = grid.at(m[0], m[1]);
+      const k = Math.max(la.rim, la.fill * 0.8);
+      if (rng() > EDGE_P * k) continue;
+      const a = L.pts[Math.max(0, (n >> 1) - 2)];
+      const b = L.pts[Math.min(n - 1, (n >> 1) + 2)];
+      const tl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const nx = -(b[1] - a[1]) / tl;
+      const ny = (b[0] - a[0]) / tl;
+      const pinkW = la.pink / (la.pink + la.warm + 1e-3);
+      const lx = -0.7 + 1.65 * pinkW;
+      const ly = -0.7 + 0.4 * pinkW;
+      const side = nx * lx + ny * ly > 0 ? 1 : -1;
+      const prof = lockWidth(L);
+      const wl = 0.7 + rng() * 1.1;
+      const s0 = rng() * 0.25;
+      const s1 = 0.55 + rng() * 0.4;
+      const path = new Path2D();
+      addRibbon(path, L.pts, span(wl, s0, s1), side * prof(0.35) * 0.6);
+      g.globalAlpha = 0.65 + 0.35 * rng();
       g.fill(path);
     }
 
@@ -438,8 +485,7 @@
       const s0 = rng() * 0.2;
       const s1 = 0.55 + rng() * 0.45;
       const path = new Path2D();
-      addRibbon(path, L.pts, (s) => (s < s0 || s > s1 ? 0 : wl * Math.sin((Math.PI * (s - s0)) / (s1 - s0))),
-        side * lockWidth(L)(0.4) * 0.85);
+      addRibbon(path, L.pts, span(wl, s0, s1), side * lockWidth(L)(0.4) * 0.85);
       g.globalAlpha = 0.7 + 0.3 * rng();
       g.fill(path);
     }
@@ -451,21 +497,21 @@
         const pts = slicePts(flat, a, b);
         const wl = 0.35 + rng() * 0.45;
         const path = new Path2D();
-        addRibbon(path, pts, (s) => wl * Math.sin(Math.PI * s), (rng() - 0.5) * 3);
+        addRibbon(path, pts, span(wl, 0, 1), (rng() - 0.5) * 3);
         g.globalAlpha = 0.55 + 0.4 * rng();
         g.fill(path);
       }
     }
     // 7. 원본에서 잰 먹선: 다발 경계의 어두운 선 (끝은 가늘게)
     g.fillStyle = INK;
-    for (const flat of D.ink || []) {
+    D.ink.forEach((flat, i) => {
       const pts = slicePts(flat, 0, flat.length / 2);
-      const wl = 0.6 + rng() * 0.5;
+      const wl = D.inkW[i] * INK_W * (0.85 + 0.3 * rng());
       const path = new Path2D();
-      addRibbon(path, pts, (s) => wl * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.9 + 0.05)), 0.5));
+      addRibbon(path, pts, taper(wl, 0.9, 0.05, 0.5));
       g.globalAlpha = MEASURED_INK_A * (0.75 + 0.25 * rng());
       g.fill(path);
-    }
+    });
     g.restore();
     return c;
   }
@@ -483,8 +529,10 @@
         const base = end === 1 ? slicePts(flat, n - 3, n) : slicePts(flat, 0, 3).reverse();
         const q = base[2];
         let ang = Math.atan2(q[1] - base[1][1], q[0] - base[1][0]);
-        const curl = (rng() - 0.5) * 0.32;
-        const len = 8 + rng() * 30;
+        const la = grid.at(q[0], q[1]);
+        // 역광이 센 가장자리일수록 길게 흩날린다
+        const curl = (rng() - 0.5) * (0.12 + 0.2 * rng());
+        const len = 8 + rng() * (24 + LOOSE_LEN * la.rim);
         const pts = base.slice();
         let x = q[0];
         let y = q[1];
@@ -494,7 +542,6 @@
           y += Math.sin(ang) * 4;
           pts.push([x, y]);
         }
-        const la = grid.at(q[0], q[1]);
         out.push({
           pts,
           v: Math.min(1, 0.45 + Math.max(la.rim, la.fill) * 0.5 + rng() * 0.15),
@@ -547,7 +594,9 @@
       // 밝기 단계별 색 지도 + 하이라이트 + 잔머리 + 가장자리 비우기
       const levels = [];
       for (let k = 0; k < LEVELS; k++) {
-        levels.push(makeMap(env, grid, (L) => shade(L, k / (LEVELS - 1), ramps, LEVEL_CAP)));
+        // 자홍 역광은 산호를 넘어 분홍·흰빛까지 다발 전체가 밝다
+        const v = k / (LEVELS - 1);
+        levels.push(makeMap(env, grid, (L) => shade(L, v, ramps, LEVEL_CAP + 0.14 * L.pink * L.rim)));
       }
       const maps = {
         levels,
@@ -556,7 +605,9 @@
           const k = Math.max(L.rim, L.fill);
           const pinkW = L.pink / (L.pink + L.warm + 1e-3);
           const v = (0.82 + 0.18 * k) * (1 - 0.12 * pinkW);
-          return shade({ ...L, rim: 0.65 + 0.35 * k, fill: 0, dark: L.dark * 0.4 }, v, ramps);
+          const c = shade({ ...L, rim: 0.65 + 0.35 * k, fill: 0, dark: L.dark * 0.4 }, v, ramps);
+          // 빛이 닿지 않는 그늘의 결은 보랏빛으로 반짝인다
+          return mix3(c, rampAt(ramps.violet, 0.7), Math.min(1, L.violet * 1.1) * (1 - k));
         }),
         // 잔머리: 테두리빛 색
         fly: makeMap(env, grid, (L) =>
@@ -606,6 +657,27 @@
         sp: 0.6 + rngF() * 0.8,
         amp: 1.5 + rngF() * 2.5,
       }));
+      // 다발 사이 틈을 건너는 가는 가닥: 몸 위에도 걸치므로 앞 장에 함께 굽는다
+      const front = clipTo(env, hair, ringsPath(D.front));
+      {
+        const g = front.getContext('2d');
+        const pats = levels.map((m) => mapPattern(g, m));
+        const rngG = env.rng('hair-gap');
+        for (const flat of D.gap) {
+          if (rngG() > GAP_P) continue;
+          const pts = slicePts(flat, 0, flat.length / 2);
+          const m = pts[pts.length >> 1];
+          const la = grid.at(m[0], m[1]);
+          const lit = rngG() < 0.15 + 0.5 * Math.max(la.rim, la.fill);
+          const w0 = GAP_W[0] + rngG() * GAP_W[1];
+          const path = new Path2D();
+          addRibbon(path, pts, taper(w0, 0.9, 0.05, 0.6));
+          g.globalAlpha = 0.7 + 0.3 * rngG();
+          g.fillStyle = lit ? pats[4 + Math.floor(rngG() * 3)] : pats[Math.floor(rngG() * 3)];
+          g.fill(path);
+        }
+      }
+
       // 목·가슴을 가로지르는 가는 가닥
       const cross = D.cross.map((flat, i) => ({
         pts: slicePts(flat, 0, flat.length / 2),
@@ -620,7 +692,7 @@
       return {
         cross,
         back: hair,
-        front: clipTo(env, hair, ringsPath(D.front)),
+        front,
         glow,
         maps,
         loose: looseEnds(D, rngA, grid),
@@ -646,7 +718,8 @@
     drawFront(ctx, st, t) {
       ctx.drawImage(st.front, 0, 0);
       // 무대 조명에 맞춰 테두리빛이 잠깐씩 밝아진다 (t=0이면 0)
-      const pulse = 0.5 - 0.5 * Math.cos(t * 1.7 + 0.6 * Math.sin(t * 0.43 + st.glowPh) - 0.6 * Math.sin(st.glowPh));
+      const wob = 0.6 * (Math.sin(t * 0.43 + st.glowPh) - Math.sin(st.glowPh));
+      const pulse = 0.5 - 0.5 * Math.cos(t * 1.7 + wob);
       if (pulse > 0.002) {
         ctx.globalCompositeOperation = 'screen';
         ctx.globalAlpha = 0.35 * pulse;
@@ -665,7 +738,7 @@
       ctx.fillStyle = mapPattern(ctx, st.maps.fly);
       for (const f of st.fly) {
         const path = new Path2D();
-        addRibbon(path, sway(f.pts, f, t), (s) => f.w * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.9 + 0.1)), 0.5));
+        addRibbon(path, sway(f.pts, f, t), taper(f.w, 0.9, 0.1, 0.5));
         ctx.globalAlpha = f.a;
         ctx.fill(path);
       }

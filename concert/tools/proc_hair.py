@@ -13,7 +13,8 @@
     open      가닥마다 끝이 바깥 배경에 닿는지 (1 = 끝, 2 = 뿌리, 3 = 둘 다)
     fly       실루엣 밖 배경을 가로지르는 잔머리 곡선
     cross     목·가슴 피부 위를 가로지르는 가는 머리카락 곡선, crossW = 곡선마다 반폭(px)
-    ink       머리 안의 먹선 곡선 (다발 사이 어두운 가는 선)
+    ink       머리 안의 먹선 곡선 (다발 사이 어두운 가는 선), inkW = 곡선마다 반폭(px)
+    gap       다발 사이 틈을 건너는 가는 가닥 흐름선
 
 방법
     1. 결 방향: 휘도의 Sobel 기울기로 구조 텐서를 만들고 머리 마스크 안에서 평활(σ 6), 일관도²로 가중해
@@ -33,6 +34,7 @@ from collections import defaultdict
 import cv2
 import numpy as np
 from scipy import ndimage as ndi
+from scipy.spatial import cKDTree
 from skimage.feature import hessian_matrix, hessian_matrix_eigvals
 from skimage.morphology import skeletonize
 
@@ -269,14 +271,36 @@ def regions(hair, skin, face, dress):
     return back, front, thin
 
 
+def gap_strands(gray, hair, face, dress):
+    """머리 다발 사이 틈(배경·피부가 비치는 구멍)을 건너는 가는 가닥: 머리를 크게 닫은 덮개 안에서
+    결을 다시 재고, 틈에서만 씨앗을 뿌려 흐름선을 긋는다."""
+    envl = cv2.morphologyEx(hair.astype(np.uint8), cv2.MORPH_CLOSE, disk(18)).astype(bool)
+    envl = ndi.binary_fill_holes(envl)
+    gap = envl & ~hair & ~face & ~dress
+    gap = cv2.morphologyEx(gap.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    c2, s2 = orientation(gray, envl)
+    tm = cv2.dilate(gap.astype(np.uint8), disk(3)).astype(bool)
+    lines = streamlines(Field(c2, s2, tm), tm, d_sep=6.0, d_test=3.0, min_len=10, seed=3, max_len=300)
+    return lines
+
+
 def ink_lines(img, hair):
     """머리 안의 먹선(다발 사이 어두운 가는 선): 어두운 능선(헤시안) 뼈대를 이어 붙인 곡선."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
     H = hessian_matrix(gray, sigma=1.2, order='rc', use_gaussian_derivatives=False)
     l1, _ = hessian_matrix_eigvals(H)
-    m = np.where(hair, np.maximum(l1, 0), 0) > 0.02
+    m = np.where(hair, np.maximum(l1, 0), 0) > 0.014
     paths = link_paths(trace_skeleton(skeletonize(m), min_len=6), gap=8, max_turn=0.5)
-    return [p for p in paths if path_len(p) >= 14]
+    paths = [p for p in paths if path_len(p) >= 12]
+    # 반폭: 어두운 선 자체의 폭 (주변보다 확실히 어두운 화소 띠의 거리 변환)
+    local = cv2.GaussianBlur(gray, (0, 0), 4.0)
+    dark = (gray < local - 0.04) & hair
+    dt = cv2.distanceTransform(dark.astype(np.uint8), cv2.DIST_L2, 3)
+    widths = []
+    for p in paths:
+        d = np.array([dt[y, x] for x, y in p])
+        widths.append(float(np.clip(np.percentile(d, 60), 0.5, 4.0)))
+    return paths, widths
 
 
 def cross_strands(img, hair, skin, face, dress, thin):
@@ -311,7 +335,6 @@ def path_len(p):
 
 def link_paths(paths, gap, max_turn):
     """끊긴 곡선 조각을 잇는다: 끝점끼리 gap 안이고 방향이 이어지면 하나로 (가까운 쌍부터, 탐욕적으로)."""
-    from scipy.spatial import cKDTree
     paths = [list(map(tuple, p)) for p in paths]
     if len(paths) < 2:
         return paths
@@ -485,6 +508,29 @@ def trace_skeleton(sk, min_len):
     return out
 
 
+def outer_background(bg):
+    """바깥 배경: 머리카락 사이로 비치는 작은 구멍은 뺀다 (역광은 바깥 가장자리에서만 받는다)."""
+    n, lab, st, _ = cv2.connectedComponentsWithStats(bg.astype(np.uint8), connectivity=8)
+    outer = np.zeros_like(bg)
+    for i in range(1, n):
+        x, y, w, h, area = st[i]
+        touches = x == 0 or y == 0 or x + w >= bg.shape[1] or y + h >= bg.shape[0]
+        if touches or area >= 6000:
+            outer |= lab == i
+    return outer
+
+
+def openness(lines, outer):
+    """가닥 끝이 바깥 배경에 닿는지 (1 = 끝, 2 = 뿌리, 3 = 둘 다): 그리는 쪽에서 잔머리처럼 늘인다."""
+    d_out = cv2.distanceTransform((~outer).astype(np.uint8), cv2.DIST_L2, 5)
+    h, w = outer.shape
+
+    def near(p):
+        return d_out[min(h - 1, int(p[1])), min(w - 1, int(p[0]))] < 5
+
+    return ''.join(str((1 if near(l[-1]) else 0) | (2 if near(l[0]) else 0)) for l in lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--debug', default=None)
@@ -493,15 +539,14 @@ def main():
     img = cv2.imread(REF)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     hair, skin, face, dress, bg = (load_mask(n) for n in ('hair', 'skin', 'face', 'dress', 'bg'))
-    cut = hair & ~refine_hair(img, hair)
-    hair = hair & ~cut
-    bg = bg | cut
-
-    c2, s2 = orientation(gray, hair)
+    refined = refine_hair(img, hair)
+    bg = (bg | (hair & ~refined)) & ~refined
+    hair = refined
+    outer = outer_background(bg)
     back, front, thin = regions(hair, skin, face, dress)
-    cross, cross_w = cross_strands(img, hair, skin, face, dress, thin)
-    cross = [orient_root(c) for c in cross]
 
+    # 결 방향장과 흐름선 (다발: 넓은 간격, 가닥: 좁은 간격)
+    c2, s2 = orientation(gray, hair)
     trace_mask = cv2.dilate(hair.astype(np.uint8), disk(2)).astype(bool)
     field = Field(c2, s2, trace_mask)
     locks = streamlines(field, trace_mask, d_sep=11.0, d_test=5.0, min_len=20, seed=1)
@@ -509,29 +554,13 @@ def main():
     locks = [orient_root(l) for l in locks]
     strands = [orient_root(l) for l in strands]
 
-
-    fly = flyaways(img, hair, bg)
-    ink = [orient_root(p) for p in ink_lines(img, hair)]
-    fly = [orient_root(f) for f in fly]
-
-    # 바깥 배경: 머리카락 사이로 비치는 작은 구멍은 뺀다 (역광은 바깥 가장자리에서만)
-    n, lab, st, _ = cv2.connectedComponentsWithStats(bg.astype(np.uint8), connectivity=8)
-    outer = np.zeros_like(bg)
-    for i in range(1, n):
-        x, y, w, h, area = st[i]
-        touches = x == 0 or y == 0 or x + w >= bg.shape[1] or y + h >= bg.shape[0]
-        if touches or area >= 6000:
-            outer |= lab == i
-    d_out = cv2.distanceTransform((~outer).astype(np.uint8), cv2.DIST_L2, 5)
-    # 끝이 바깥 배경에 닿는 가닥 (1 = 끝, 2 = 뿌리, 3 = 둘 다): 그리는 쪽에서 잔머리처럼 늘인다
-    def openness(l):
-        a, b = l[0], l[-1]
-        f = 0
-        if d_out[min(1253, int(b[1])), min(1253, int(b[0]))] < 5:
-            f |= 1
-        if d_out[min(1253, int(a[1])), min(1253, int(a[0]))] < 5:
-            f |= 2
-        return str(f)
+    # 가는 선들: 잔머리, 틈 가닥, 먹선, 목·가슴 위 가닥
+    fly = [orient_root(f) for f in flyaways(img, hair, bg)]
+    gaps = [orient_root(p) for p in gap_strands(gray, hair, face, dress)]
+    ink, ink_w = ink_lines(img, hair)
+    ink = [orient_root(p) for p in ink]
+    cross, cross_w = cross_strands(img, hair, skin, face, dress, thin)
+    cross = [orient_root(c) for c in cross]
 
     data = {
         'version': 1,
@@ -539,22 +568,26 @@ def main():
         'sil': rings(hair),
         'back': rings(back),
         'front': rings(front),
+        'outer': rings(outer, eps=1.5, min_area=200),
         'locks': [resample(l, 5.0) for l in locks],
         'strands': [resample(l, 4.0) for l in strands],
-        'open': ''.join(openness(l) for l in strands),
-        'outer': rings(outer, eps=1.5, min_area=200),
+        'open': openness(strands, outer),
         'fly': [resample(smooth_path(f), 4.0) for f in fly],
-        'cross': [resample(smooth_path(c), 4.0) for c in cross],
+        'gap': [resample(p, 4.0) for p in gaps],
         'ink': [resample(smooth_path(c), 5.0) for c in ink],
+        'inkW': [round(w, 1) for w in ink_w],
+        'cross': [resample(smooth_path(c), 4.0) for c in cross],
         'crossW': [round(w, 1) for w in cross_w],
     }
     js = ('// tools/proc_hair.py가 만든다. 직접 고치지 않는다.\n'
-          '// 머리카락의 기하: 뒤 실루엣·앞 영역(evenodd 고리), 다발·가닥·잔머리 흐름선(뿌리→끝, 원본 픽셀 좌표).\n'
+          '// 머리카락의 기하만 담는다(색 없음): 실루엣·앞·뒤·바깥 배경(evenodd 고리), 다발·가닥 흐름선,\n'
+          '// 먹선·틈 가닥·잔머리·목 위 가닥 곡선(뿌리→끝). 좌표는 원본 1254×1254 픽셀.\n'
           '(window.ConcertProc = window.ConcertProc || {}).hairData = '
           + json.dumps(data, separators=(',', ':')) + ';\n')
     with open(OUT_JS, 'w') as f:
         f.write(js)
-    print('locks', len(locks), 'strands', len(strands), 'fly', len(fly), 'cross', len(cross), 'ink', len(ink),
+    print('locks', len(locks), 'strands', len(strands), 'fly', len(fly), 'cross', len(cross),
+          'ink', len(ink), 'gap', len(gaps),
           'bytes', len(js), 'back rings', len(data['back']), 'front rings', len(data['front']))
 
     if args.debug:
