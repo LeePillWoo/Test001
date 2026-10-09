@@ -4,8 +4,9 @@
     python3 concert/tools/proc_hair.py [--debug DIR]
 
 내보내는 것 (색 화소는 하나도 내보내지 않는다)
-    back      뒤 머리 실루엣: 머리 마스크 + 몸·얼굴 밑으로 조금 이어 그린 부분 (evenodd 고리)
-    front     몸·얼굴 앞에 놓이는 머리 덩어리 (이마 선, 목 옆, 드레스 위 머리). 가는 조각은 뺀다
+    sil       머리 실루엣 (분석 마스크에서 가장자리의 푸른 배경 구멍을 뺀 것)
+    back      뒤 머리 실루엣: sil + 몸·얼굴 밑으로 조금 이어 그린 부분 (evenodd 고리)
+    front     몸·얼굴보다 앞에 다시 덮는 머리 (보이는 머리 전부에서 피부 위의 가는 조각만 뺀 것)
     outer     바깥 배경 (머리카락 사이 작은 구멍은 뺀 것) — 역광 띠의 기준
     locks     굵은 다발 흐름선 (뿌리 → 끝)
     strands   가는 가닥 흐름선 (뿌리 → 끝)
@@ -206,6 +207,21 @@ def orient_root(pts):
     return pts if da <= db else pts[::-1]
 
 
+def smooth_path(pts, k=7):
+    """뼈대의 계단 무늬를 이동 평균으로 편다 (끝점은 그대로)."""
+    p = np.array(pts, np.float64)
+    if len(p) < k + 2:
+        return [tuple(v) for v in p]
+    ker = np.ones(k) / k
+    pad = k // 2
+    out = p.copy()
+    for c in range(2):
+        q = np.concatenate([np.full(pad, p[0, c]), p[:, c], np.full(pad, p[-1, c])])
+        out[:, c] = np.convolve(q, ker, mode='valid')
+    out[0], out[-1] = p[0], p[-1]
+    return [tuple(v) for v in out]
+
+
 def resample(pts, step):
     """호 길이 step 간격으로 다시 찍는다 (끝점 포함)."""
     p = np.array(pts, dtype=np.float64)
@@ -235,17 +251,16 @@ def rings(mask, eps=1.0, min_area=25):
 
 def regions(hair, skin, face, dress):
     body = (skin | dress | face).astype(np.uint8)
-    # 몸 덩어리: 크게 닫고 구멍을 메운 것 — 이 안의 머리는 몸 앞에 있다
+    # 몸 덩어리: 크게 닫고 구멍을 메운 것 — 이 안의 가는 머리 조각은 피부 위를 지나는 가닥이다
     hull = cv2.morphologyEx(body, cv2.MORPH_CLOSE, disk(22))
     hull = ndi.binary_fill_holes(hull).astype(bool)
-    near_face = cv2.dilate(face.astype(np.uint8), disk(14)).astype(bool)
-    front = hair & (hull | near_face)
-    front = cv2.morphologyEx(front.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
-    # 몸 위에 걸친 가는 조각(폭 18px 미만)은 채우지 않고 가는 가닥 선으로 그린다
-    core = cv2.morphologyEx(front.astype(np.uint8), cv2.MORPH_OPEN, disk(9)).astype(bool)
-    core = cv2.dilate(core.astype(np.uint8), disk(2)).astype(bool) & front
-    thin = front & ~core & hull
-    front = core | (front & ~hull)
+    # 앞 영역 = 보이는 머리 전부 (몸·얼굴이 넉넉하게 그린 모양 위로 다시 덮는다).
+    # 단, 몸 위에 걸친 가는 조각(폭 18px 미만)은 채우지 않고 가는 가닥 선으로 그린다.
+    core = cv2.morphologyEx(hair.astype(np.uint8), cv2.MORPH_OPEN, disk(9)).astype(bool)
+    core = cv2.dilate(core.astype(np.uint8), disk(2)).astype(bool) & hair
+    thin = hair & ~core & hull & cv2.dilate(skin.astype(np.uint8), disk(3)).astype(bool)
+    thin = cv2.morphologyEx(thin.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    front = hair & ~thin
     # 뒤 실루엣: 머리 + 몸·얼굴 밑으로 18px 이어 그림 (이음새에 배경이 비치지 않게)
     ext = cv2.dilate(hair.astype(np.uint8), disk(18)).astype(bool) & body.astype(bool)
     back = hair | ext
@@ -274,7 +289,7 @@ def cross_strands(img, hair, skin, face, dress, thin):
     widths = []
     for p in paths:
         d = np.array([dt[y, x] for x, y in p])
-        widths.append(float(max(0.6, min(5.0, np.percentile(d, 75) * 0.75))))
+        widths.append(float(max(0.6, min(2.2, np.percentile(d, 75) * 0.5))))
     return paths, widths
 
 
@@ -323,6 +338,20 @@ def link_paths(paths, gap, max_turn):
             paths = [p for k, p in enumerate(paths) if k not in (i, j)] + [merged]
             changed = True
     return paths
+
+
+def refine_hair(img, hair):
+    """머리 마스크 가장자리의 푸른 배경 구멍을 뺀다 (정수리 위·왼쪽 다발 사이로 비치는 무대).
+    색은 모양을 정하는 데만 쓴다: 가장자리 45px 안에서 푸른빛이 우세한 덩어리."""
+    f = img.astype(np.float32)
+    b, r = f[:, :, 0], f[:, :, 2]
+    blue = ((b > r * 1.05) & (b > 70)).astype(np.float32)
+    blue = cv2.GaussianBlur(blue, (0, 0), 2.5) > 0.55
+    depth = cv2.distanceTransform(hair.astype(np.uint8), cv2.DIST_L2, 5)
+    cut = hair & blue & (depth < 45)
+    cut[620:] = False
+    cut = cv2.morphologyEx(cut.astype(np.uint8), cv2.MORPH_OPEN, disk(2)).astype(bool)
+    return hair & ~cut
 
 
 # ── 잔머리 ────────────────────────────────────────────────
@@ -388,6 +417,9 @@ def main():
     img = cv2.imread(REF)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     hair, skin, face, dress, bg = (load_mask(n) for n in ('hair', 'skin', 'face', 'dress', 'bg'))
+    cut = hair & ~refine_hair(img, hair)
+    hair = hair & ~cut
+    bg = bg | cut
 
     c2, s2 = orientation(gray, hair)
     back, front, thin = regions(hair, skin, face, dress)
@@ -427,14 +459,15 @@ def main():
     data = {
         'version': 1,
         'scalp': list(SCALP),
+        'sil': rings(hair),
         'back': rings(back),
         'front': rings(front),
         'locks': [resample(l, 5.0) for l in locks],
         'strands': [resample(l, 4.0) for l in strands],
         'open': ''.join(openness(l) for l in strands),
         'outer': rings(outer, eps=1.5, min_area=200),
-        'fly': [resample(f, 4.0) for f in fly],
-        'cross': [resample(c, 4.0) for c in cross],
+        'fly': [resample(smooth_path(f), 4.0) for f in fly],
+        'cross': [resample(smooth_path(c), 4.0) for c in cross],
         'crossW': [round(w, 1) for w in cross_w],
     }
     js = ('// tools/proc_hair.py가 만든다. 직접 고치지 않는다.\n'

@@ -43,7 +43,8 @@
   // 원본 드레스에서 밝은 스팽글이 몰린 자리를 가우스 덩어리로 잰 값. 세기는 그 자리의 '반짝이는 면적 비율'.
   const ZONES = {
     dress: [
-      [681, 784, 85, 'white', 0.26],
+      [681, 790, 85, 'white', 0.34],
+      [620, 792, 45, 'white', 0.12],
       [694, 1027, 28, 'magenta', 0.21],
       [517, 1200, 28, 'pink', 0.2],
       [778, 892, 43, 'lavender', 0.14],
@@ -51,7 +52,7 @@
       [608, 996, 85, 'pink', 0.11],
       [728, 906, 28, 'white', 0.09],
       [584, 867, 28, 'white', 0.085],
-      [750, 880, 32, 'blue', 0.06],
+      [760, 845, 34, 'blue', 0.08],
       [600, 905, 60, 'pink', 0.12],
       [660, 950, 50, 'white', 0.08],
     ],
@@ -68,10 +69,12 @@
       [91, 1189, 28, 'white', 0.08],
     ],
   };
+  // 스팽글 하나가 분홍/파랑으로 물들 확률
+  const TINT = { pink: 0.22, blue: 0.12 };
   // 구역 밖의 바탕 비율 — 스팽글 몇 개는 어디서나 반짝인다
   const AMBIENT = { dress: 0.045, skirt: 0.05 };
   // 반짝이는 면적 비율 → 스팽글 하나가 밝게 보일 확률 (밝은 스팽글 하나가 칸의 약 1/3을 덮는다)
-  const P_GAIN = 2.6;
+  const P_GAIN = 2.8;
   // 스팽글 반지름 / 행 간격
   const SEQ_R = 0.3;
 
@@ -82,7 +85,7 @@
     dress: {
       pitch: 8.5,
       guides: [
-        { pitch: 8, pts: [[470, 742], [590, 752], [650, 778], [720, 797], [780, 810], [840, 800], [900, 780], [975, 752]] },
+        { pitch: 8, pts: [[470, 748], [590, 758], [650, 783], [720, 802], [780, 815], [840, 805], [900, 785], [975, 757]] },
         { pitch: 9, pts: [[450, 800], [560, 828], [640, 858], [720, 872], [800, 870], [870, 850], [970, 820]] },
         { pitch: 10, pts: [[420, 900], [520, 942], [600, 960], [680, 962], [760, 950], [850, 925], [960, 895]] },
         { pitch: 6, stretch: 1.7, pts: [[380, 990], [470, 1015], [560, 1036], [640, 1022], [720, 1004], [820, 990]] },
@@ -104,7 +107,7 @@
   // 목선(드레스 위 가장자리)과 겨드랑이 쪽 검은 안감
   const NECKLINE = [[540, 744], [590, 752], [630, 770], [680, 786], [730, 798], [780, 809], [820, 803],
     [860, 794], [905, 780], [960, 752]];
-  const LINING = [[572, 726], [600, 722], [612, 738], [632, 760], [662, 782], [610, 792], [560, 792]];
+  const LINING = [[572, 726], [600, 722], [612, 738], [632, 758], [652, 773], [600, 778], [560, 780]];
 
   // 치마에 박힌 큰 원형 장식(라인스톤): x, y, 반지름
   const JEWELS = [[130, 1021, 7], [62, 958, 8], [250, 944, 5], [113, 935, 5]];
@@ -120,6 +123,16 @@
     [[[60, 960], [96, 920], [118, 890]], 2],
   ];
 
+  // 목의 또렷한 셀 그림자: [점들, 단계(1..4), 흐림 px]
+  const TORSO_CEL = [
+    // 가슴골 그늘
+    [[[752, 777], [800, 750], [797, 776], [787, 800], [770, 799]], 2, 2.5],
+    // 목 오른쪽 옆면(중간 그늘)
+    [[[858, 500], [904, 488], [946, 452], [954, 470], [920, 518], [890, 560], [872, 584], [850, 548]], 2, 1.2],
+    // 턱 밑에 드리운 그늘
+    [[[790, 430], [830, 454], [868, 472], [906, 468], [948, 450], [934, 474], [904, 490], [876, 500],
+      [854, 506], [836, 490], [814, 462]], 3, 0.8],
+  ];
   // 피부의 작은 윤기(흰 점·짧은 획): [점들, 굵기]
   const SHINES = [
     [[[596, 496], [599, 501]], 1.6],
@@ -130,11 +143,11 @@
 
   // ── 손으로 그린 안쪽 선: [점들, 굵기] (빗장뼈·가슴골·겨드랑이·팔꿈치 주름) ──
   const INNER_LINES = [
-    [[[742, 768], [748, 782], [754, 796]], 1.6],
+    [[[801, 750], [793, 772], [785, 797]], 1.4],
+    [[[750, 777], [763, 789], [778, 797]], 1.1],
     [[[820, 666], [838, 650], [858, 640]], 1.4],
     [[[598, 690], [592, 716], [586, 742]], 1.8],
     [[[368, 1030], [376, 1050], [380, 1072]], 1.2],
-    [[[600, 748], [640, 772], [690, 788]], 1.0],
   ];
 
   // ── 작은 도우미 ─────────────────────────────────────────
@@ -296,6 +309,14 @@
       g.fill(path, 'evenodd');
       g.restore();
     }
+    // 손으로 잰 또렷한 셀 그림자(턱 밑 그늘 같은 것): [점들, 단계, 흐림]
+    for (const [pts, k, blur] of opts.cel || []) {
+      g.save();
+      if (blur > 0) g.filter = `blur(${blur}px)`;
+      g.fillStyle = tone[k + 1];
+      g.fill(new Path2D(C.smoothPath(pts, true, 0.35)));
+      g.restore();
+    }
     // 분홍·붉은 조명 반사(림): 지정한 쪽 가장자리를 안쪽으로 번지게 칠한다
     if (opts.rim) {
       for (const [rx, ry, rr, col, a] of opts.rim) {
@@ -309,6 +330,53 @@
       }
     }
     g.restore();
+  }
+
+  // 림 라이트 규칙: 보이는 윤곽 마디마다 바깥 법선이 조명 쪽을 볼수록 안쪽으로 번지는 띠를 그린다.
+  // lights: [[빛 방향 x, y], 색, 폭(px), 세기]
+  function rimLight(g, env, shape, edges, lights, tmp) {
+    const C = env.core;
+    const t = tmp.getContext('2d');
+    const segs = [];
+    for (const r of edges) {
+      const pts = resample(chaikin(flat(r), false, 2), 4);
+      for (let i = 1; i < pts.length; i++) {
+        const [x0, y0] = pts[i - 1];
+        const [x1, y1] = pts[i];
+        let nx = y0 - y1;
+        let ny = x1 - x0;
+        const d = Math.hypot(nx, ny) || 1;
+        nx /= d;
+        ny /= d;
+        // 법선이 부위 안쪽을 보면 뒤집는다
+        if (g.isPointInPath(shape.path, (x0 + x1) / 2 + nx * 3, (y0 + y1) / 2 + ny * 3, 'evenodd')) {
+          nx = -nx;
+          ny = -ny;
+        }
+        segs.push([x0, y0, x1, y1, nx, ny]);
+      }
+    }
+    for (const [[lx, ly], col, width, alpha] of lights) {
+      const ln = Math.hypot(lx, ly);
+      t.clearRect(0, 0, tmp.width, tmp.height);
+      t.lineCap = 'round';
+      t.lineWidth = width;
+      for (const [x0, y0, x1, y1, nx, ny] of segs) {
+        const k = (nx * lx + ny * ly) / ln;
+        if (k <= 0.05) continue;
+        t.strokeStyle = C.rgba(col, alpha * k);
+        t.beginPath();
+        t.moveTo(x0, y0);
+        t.lineTo(x1, y1);
+        t.stroke();
+      }
+      // 한 번에 흐려서 부위 안쪽에만 얹는다
+      g.save();
+      g.clip(shape.path, 'evenodd');
+      g.filter = `blur(${(width / 3).toFixed(1)}px)`;
+      g.drawImage(tmp, 0, 0);
+      g.restore();
+    }
   }
 
   // ── 드레스 ─────────────────────────────────────────────
@@ -395,7 +463,14 @@
         // 밝게 보일 확률 p와 이 스팽글의 각도 u: u < p면 반짝인다. p - u가 클수록 희게.
         const p = C.clamp(P_GAIN * L.I * (0.7 + 0.45 * fold) * (0.75 + 0.5 * streak), 0, 0.98);
         const u = facet;
-        const col = L.col;
+        // 스팽글마다 받는 조명이 조금씩 달라 분홍·파랑으로 물든 것이 섞인다
+        const hue = rng();
+        const col =
+          hue < TINT.pink
+            ? mix3(L.col, SEQ.rgb.pink, 0.65)
+            : hue < TINT.pink + TINT.blue
+              ? mix3(L.col, SEQ.rgb.blue, 0.6)
+              : L.col;
         let fill;
         let b2 = 0;
         if (u < p) {
@@ -415,7 +490,7 @@
         const sy = 1 / Math.sqrt(row.stretch);
         // 스팽글 몸통: 비늘처럼 겹치는 어두운 원판(아래 행이 위 행을 살짝 덮는다)
         const body = row.pitch * 0.5;
-        g.fillStyle = C.rgba(mix3(SEQ.body, col, 0.04 + 0.08 * L.I), 0.8);
+        g.fillStyle = C.rgba(mix3(SEQ.body, col, 0.03 + 0.06 * L.I), 0.6);
         g.beginPath();
         g.ellipse(x, y + body * 0.12, body * sx, body * sy, ang, 0, Math.PI * 2);
         g.fill();
@@ -578,6 +653,7 @@
       drawSkin(g, env, shapes, 'torso', {
         grad: [640, 480, 940, 800],
         blur: [1.5, 5, 2.5, 1, 0.6], // 가슴의 넓은 그림자는 부드럽게, 깊은 그림자는 또렷하게
+        cel: TORSO_CEL,
         rim: [[960, 700, 160, '#ff70b0', 0.35]],
       });
       drawSkin(g, env, shapes, 'waist', { grad: [180, 860, 320, 1000], rim: [[200, 880, 80, '#ff6aa0', 0.4]] });
@@ -619,11 +695,6 @@
         g.fill();
       }
 
-      // 목선 단(hem): 드레스 위 가장자리를 따라 스팽글 없는 검은 띠
-      g.save();
-      g.clip(shapes.dress.path, 'evenodd');
-      inkLine(g, chaikin(NECKLINE, false, 3), 13, DRESS.deep, noise, 17, false);
-      g.restore();
       // 겨드랑이 쪽 안감
       g.save();
       g.beginPath();
@@ -650,6 +721,14 @@
         ],
       });
 
+      // 림 라이트: 왼쪽 위 흰 조명은 크림색, 오른쪽·아래 분홍 조명은 분홍으로 가장자리를 물들인다
+      const RIM = [
+        [[-0.6, -0.8], '#fff6ea', 10, 0.45],
+        [[0.85, 0.35], '#ff7eb0', 14, 0.3],
+      ];
+      const tmp = env.makeCanvas(W, H);
+      for (const name of ['fore', 'waist', 'arm']) rimLight(g, env, shapes[name], D.edges[name] || [], RIM, tmp);
+
       // 4) 피부 윤곽선과 안쪽 선
       for (const name of ['fore', 'torso', 'waist', 'arm']) {
         for (const r of D.edges[name] || []) inkLine(g, chaikin(flat(r), false, 2), 2.0, SKIN.line, noise, 7, false);
@@ -674,13 +753,6 @@
         pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
         g.stroke();
       }
-      g.save();
-      g.beginPath();
-      D.strapR.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-      g.closePath();
-      g.fillStyle = DRESS.base;
-      g.fill();
-      g.restore();
 
       // 6) 반짝이 별빛
       // 하이라이트 판은 드레스 안쪽만 (팔·피부가 덮은 곳은 지운다)

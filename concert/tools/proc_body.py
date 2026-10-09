@@ -4,11 +4,12 @@
     python3 concert/tools/proc_body.py [--debug DIR]
 
 출력: js/procedural/data/body.js  (window.ConcertProc.bodyData)
-    shapes   부위별 윤곽(evenodd 고리). 보이는 곳은 분석 마스크(tools/analysis)의 경계를 따르고,
-             머리카락·얼굴·끈에 가린 곳은 손으로 잰 보충 다각형으로 이어 붙인다.
-             → 위에 그려지는 레이어와의 이음매로 배경이 비치지 않는다.
-    bands    피부 부위별 명암 단계 모양(셀 그림자 1~4단의 경계선). 원본 피부의 밝기 축을 몇 단계로
-             나눈 경계만 남기고 부드럽게 다듬는다. 가린 곳은 주변 단계를 이어 칠한다(inpaint).
+    shapes   부위별 윤곽(evenodd 고리). 보이는 곳은 분석 마스크(tools/analysis)의 경계를 따른다.
+             얼굴·드레스·팔처럼 반드시 위에 그려지는 것 밑으로는 손으로 잰 보충 다각형만큼 이어 그리고,
+             머리카락 밑으로는 몇 px만 넓힌다(뒷머리는 hair 레이어가 몸 밑까지 이어 그린다).
+    edges    윤곽 가운데 실제로 보이는 구간(먹선을 그을 곳). 위 레이어가 덮는 구간은 뺀다.
+    bands    피부 부위별 명암 단계 모양(하이라이트, 셀 그림자 1~4단의 경계선). 원본 피부의 밝기 축을
+             몇 단계로 나눈 경계만 남기고 부드럽게 다듬는다. 가린 곳은 주변 단계를 이어 칠한다(inpaint).
              단계별 색은 body.js의 팔레트가 정한다.
     strapL   왼쪽 어깨끈 중심선
 같은 입력이면 언제나 같은 출력이 나온다.
@@ -100,10 +101,9 @@ COMPS = {
 }
 ORDER = ['arm', 'torso', 'waist', 'fore', 'dress', 'skirt', 'sash']
 SKIN_COMPS = ['torso', 'arm', 'waist', 'fore']
-# 오른쪽 어깨끈(머리카락 사이로 보이는 짧은 띠)
-STRAP_R = [(936, 724), (922, 712), (896, 740), (845, 805), (872, 815), (907, 775)]
-# 머리카락 밑으로 넓히는 폭(px)
-MARGIN = 18
+# 머리카락 밑으로 넓히는 폭(px). hair 레이어는 뒷머리를 몸 밑으로 18px 이어 그리므로(이음새 담당),
+# 몸은 머리카락을 덮지 않도록 안티에일리어싱 폭만큼만 넓힌다.
+MARGIN = 3
 # 그림자 단계 수 (하이라이트·바탕 위에 BANDS단)
 BANDS = 4
 
@@ -307,7 +307,6 @@ def build(debug=None):
         'edges': {k: edges(v, cover[k], COMPS[k].get('min_edge', 24)) for k, v in comps.items()},
         'bands': bands,
         'strapL': [list(p) for p in STRAP_L],
-        'strapR': [list(p) for p in STRAP_R],
     }
     if debug:
         os.makedirs(debug, exist_ok=True)

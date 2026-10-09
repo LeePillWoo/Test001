@@ -192,7 +192,7 @@ def mouth_parts(L, A, C, shape):
     roi = box_mask(MOUTH_BOX, shape)
     lips = biggest(smooth(roi & (A > 24), 1.2))
     lips = smooth(fill_holes(lips), 2.0)
-    dark = smooth(roi & (L < 42) & lips, 1.2)
+    dark = cv2.GaussianBlur((roi & (L < 42) & lips).astype(np.float32), (0, 0), 1.2) > 0.35
     return lips, dark
 
 
