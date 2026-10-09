@@ -2,8 +2,8 @@
 """신경망 기억: 좌표 (x, y)를 색 (r, g, b)로 바꾸는 작은 신경장(neural field)을 원본에 맞춰 학습한다.
 
 구조 (Instant-NGP식 조밀 다중 해상도 특징 격자 + 작은 MLP)
-    픽셀 중심 좌표 → 해상도가 다른 특징 격자 8장에서 쌍선형 보간 → 특징 23개를 이어 붙여
-    MLP(23 → 32 → 32 → 3, ReLU) → RGB. 격자 값과 MLP 가중치가 곧 그림이다.
+    픽셀 중심 좌표 → 해상도가 다른 특징 격자 8장에서 쌍선형 보간 → 특징 24개를 이어 붙여
+    MLP(24 → 32 → 32 → 3, ReLU) → RGB. 격자 값과 MLP 가중치가 곧 그림이다.
     격자: 16² 32² 64² 128² 256² (특징 4개) · 400² (2개) · 800² (1개) · 얼굴 상자 300×250 (1개, 픽셀당 한 칸).
     고운 레벨일수록 특징 수를 줄이고 해상도를 올리는 편이 같은 용량에서 더 또렷했다.
     보간 규칙은 WebGL의 LINEAR + CLAMP_TO_EDGE와 같아서, 브라우저는 격자를 텍스처로 올리고
@@ -26,7 +26,9 @@
     최종 그림의 MLP와 따로라서 최종 품질을 깎지 않는다 (한 MLP로 함께 배우면 약 2 dB 손해였다).
 
     OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 python3 concert/tools/train_neural.py --png /tmp/n/recon.png
+        기본값 그대로가 js/neural/data.js를 만든다 (2스레드로 약 15분: 학습 8000단계 + QAT + 인트로 MLP).
     python3 concert/tools/train_neural.py --steps 600 --out /tmp/n/data.js --png /tmp/n/recon.png
+    python3 concert/tools/train_neural.py --load model.npz ...   학습은 건너뛰고 양자화부터 (--save로 저장한 모델)
 """
 import argparse
 import base64
@@ -234,7 +236,7 @@ def render(field, grids=None, W=None, b=None, keep_levels=None, fill=None, rows=
 
 def level_mask(levels, k):
     """앞의 k개 레벨만 남기는 특징 마스크 (D,)"""
-    return np.concatenate([np.full(lv[2], 1.0 if li < k else 0.0, np.float32) for li, lv in enumerate(levels)])
+    return np.concatenate([np.full(lv[2], float(li < k), np.float32) for li, lv in enumerate(levels)])
 
 
 def psnr(a, b):
@@ -336,10 +338,12 @@ def write_data(path, field, qs, W, b, off, intro, extra):
     """data.js: 격자는 레벨·채널별 평면으로 이어 붙여 zlib로 줄인 뒤 base64, MLP는 float32 base64."""
     planes = b''.join(np.ascontiguousarray(q.transpose(2, 0, 1)).tobytes() for q, _, _ in qs)
     packed = zlib.compress(planes, 9)
-    def flat(Ws, bs):
-        return np.concatenate([np.concatenate([w.ravel(), x]) for w, x in zip(Ws, bs)]).astype('<f4')
 
-    mlp_arr = flat(W, b)
+    def b64mlp(Ws, bs):
+        arr = np.concatenate([np.concatenate([w.ravel(), x]) for w, x in zip(Ws, bs)]).astype('<f4')
+        return base64.b64encode(arr.tobytes()).decode('ascii'), arr.nbytes
+
+    mlp_b64, mlp_bytes = b64mlp(W, b)
     meta = {
         'size': field.size,
         'levels': [[w, h, F, *box] for w, h, F, box in field.levels],
@@ -350,14 +354,15 @@ def write_data(path, field, qs, W, b, off, intro, extra):
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         f.write('// tools/train_neural.py가 만든다. 직접 고치지 않는다.\n')
-        f.write('// grids: zlib(레벨마다 채널별 R×R uint8 평면, 행 0이 위), mlp: float32 [W0, b0, W1, b1, ...]\n')
+        f.write('// levels: [가로칸, 세로칸, 특징 수, 상자 x0, y0, x1, y1], off: 레벨을 끈 상태(특징 0)의 텍스처 값\n')
+        f.write('// grids: zlib(레벨마다 채널별 uint8 평면, 행 0이 위), mlp·mlpIntro: float32 [W0, b0, W1, b1, ...]\n')
         f.write('window.ConcertData = window.ConcertData || {};\n')
         f.write('window.ConcertData.neural = ' + json.dumps(meta, separators=(',', ':')) + ';\n')
         f.write(f"window.ConcertData.neural.grids = '{base64.b64encode(packed).decode('ascii')}';\n")
-        f.write(f"window.ConcertData.neural.mlp = '{base64.b64encode(mlp_arr.tobytes()).decode('ascii')}';\n")
+        f.write(f"window.ConcertData.neural.mlp = '{mlp_b64}';\n")
         if intro:
-            f.write(f"window.ConcertData.neural.mlpIntro = '{base64.b64encode(flat(*intro).tobytes()).decode('ascii')}';\n")
-    return len(planes), len(packed), mlp_arr.nbytes
+            f.write(f"window.ConcertData.neural.mlpIntro = '{b64mlp(*intro)[0]}';\n")
+    return len(planes), len(packed), mlp_bytes
 
 
 def main():
@@ -366,13 +371,14 @@ def main():
     ap.add_argument('--hidden', default='32,32')
     ap.add_argument('--bits', default='8,8,8,7,7,7,7,7', help='레벨별 양자화 비트 (하나면 전부 같게)')
     ap.add_argument('--steps', type=int, default=8000)
-    ap.add_argument('--qat-steps', type=int, default=600, help='양자화 인지 학습 단계 수')
+    ap.add_argument('--qat-steps', type=int, default=1500, help='양자화 인지 학습 단계 수')
     ap.add_argument('--qat-lr', type=float, default=0.1, help='QAT 학습률 배율')
     ap.add_argument('--tune-steps', type=int, default=200, help='양자화 뒤 MLP만 다듬는 단계 수')
     ap.add_argument('--rows', type=int, default=52, help='한 묶음의 픽셀 행 수 (52행 ≈ 6.5만 픽셀)')
     ap.add_argument('--lr', type=float, default=0.01)
     ap.add_argument('--wd', type=float, default=1e-6)
-    ap.add_argument('--nested', type=float, default=0.0)
+    ap.add_argument('--nested', type=float, default=0.0,
+                    help='최종 MLP 학습에도 고운 레벨을 끈 픽셀을 섞는 비율 (실험용, 품질 손해가 크다)')
     ap.add_argument('--nested-min', type=int, default=2)
     ap.add_argument('--seed', type=int, default=1254)
     ap.add_argument('--out', default=OUT)
@@ -399,7 +405,8 @@ def main():
     field = Field(levels, hidden, n, rng, ref.reshape(-1, 3).mean(0))
     n_grid = sum(w * h * F for w, h, F, _ in levels)
     n_mlp = sum(w.size for w in field.W) + sum(b.size for b in field.b)
-    print(f'levels {levels}  bits {bits}  hidden {hidden}  grid params {n_grid}  mlp params {n_mlp}', flush=True)
+    print(f'levels {levels}  bits {bits}  hidden {hidden}', flush=True)
+    print(f'grid params {n_grid}  mlp params {n_mlp}', flush=True)
 
     if args.load:
         z = np.load(args.load)
@@ -415,8 +422,8 @@ def main():
 
     # ── 양자화: 눈금을 정하고, 양자화한 격자로 순전파하며 조금 더 학습(QAT)한 뒤 정수로 굳힌다 ──
     qp = quant_params(field.grids, bits)
-    print(f'quant  psnr {psnr(render(field, grids=[dequant(quant(G, *p), *p) for G, p in zip(field.grids, qp)]), ref):.2f} dB'
-          ' (before QAT)', flush=True)
+    rough = [dequant(quant(G, *p), *p) for G, p in zip(field.grids, qp)]
+    print(f'quant  psnr {psnr(render(field, grids=rough), ref):.2f} dB (before QAT)', flush=True)
     if args.qat_steps:
         args_q = argparse.Namespace(**vars(args))
         args_q.nested = 0.0
@@ -464,10 +471,10 @@ def main():
         # 인트로 단계: 거친 레벨부터 k장만 켰을 때의 그림 (중첩 학습을 했을 때 의미가 있다)
         iW, ib = intro or (W, b)
         for k in range(len(levels) + 1):
-            save_png(render(field, grids=tex, W=iW, b=ib, keep_levels=k, fill=off), f'{args.stages_png}_{k}.png')
+            img = render(field, grids=tex, W=iW, b=ib, keep_levels=k, fill=off)
+            save_png(img, f'{args.stages_png}_{k}.png')
 
-    extra = {'psnr': round(p_final, 2), 'params': {'grid': n_grid, 'mlp': n_mlp}, 'bits': bits,
-             'seconds': round(time.time() - t_start)}
+    extra = {'psnr': round(p_final, 2), 'params': {'grid': n_grid, 'mlp': n_mlp}, 'bits': bits}
     raw, packed, mlp_bytes = write_data(args.out, field, qs, W, b, off, intro, extra)
     size = os.path.getsize(args.out)
     print(f'wrote {args.out}  {size} bytes ({size / 1024:.0f} KB)  grids {raw} B → zlib {packed} B,'

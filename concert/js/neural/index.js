@@ -1,14 +1,15 @@
 // 신경망 기억: 좌표 (x, y)를 색으로 바꾸는 작은 신경장(neural field)으로 그림 전체를 계산한다.
 //
 // 구조 (tools/train_neural.py가 학습)
-//   해상도가 다른 특징 격자 L장(8비트 텍스처) → 픽셀 중심에서 쌍선형 보간 → 이어 붙인 특징
-//   → ReLU MLP → RGB. 격자 값과 가중치가 곧 그림이고, 원본 픽셀은 쓰지 않는다.
+//   해상도가 다른 특징 격자 8장(16²…800², 얼굴 상자 하나) → 픽셀 중심에서 쌍선형 보간 → 특징 24개
+//   → MLP(24 → 32 → 32 → 3, ReLU) → RGB. 격자 값과 가중치가 곧 그림이고, 원본 픽셀은 쓰지 않는다.
 //
-// WebGL2: 격자는 LINEAR 필터 텍스처, 가중치는 셰이더 소스에 상수로 펼쳐 넣는다.
+// WebGL2: 격자는 LINEAR 필터 8비트 텍스처, 가중치는 셰이더 소스에 상수로 펼쳐 넣는다.
 // WebGL2가 없으면 같은 계산을 JS로 행 묶음씩 나눠 한다(페이지가 멈추지 않게 프레임마다 양보).
 //
-// 인트로: 거친 격자부터 한 장씩 켠다. 학습할 때 고운 레벨을 끈 상태도 함께 가르쳐서(중첩 학습)
-// 단계마다 흐린 그림이 점점 또렷해진다. 정지 화면과 renderAt(t)은 언제나 완성된 그림이다.
+// 인트로: 거친 격자부터 한 장씩 켠다. 고운 레벨을 끈 입력에서도 흐린 그림을 내도록 따로 학습한
+// 인트로용 MLP로 그리다가, 끝에서 최종 MLP 그림으로 겹쳐 넘어간다. 정지 화면과 renderAt(t)은
+// 언제나 완성된 그림이다.
 //
 // 디버그 주소 옵션
 //   cpu=1        WebGL2를 쓰지 않고 JS로 계산
@@ -111,8 +112,11 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
       if (lv.local) {
         // 국소 격자: 상자 좌표로 바꾸고, 상자 밖이면 '특징 0'
         const [x0, y0, x1, y1] = lv.box;
-        lines.push(`vec2 q${l} = (uv * ${lit(net.size)} - vec2(${lit(x0)}, ${lit(y0)})) / vec2(${lit(x1 - x0)}, ${lit(y1 - y0)});`);
-        lines.push(`float in${l} = step(0.0, q${l}.x) * step(q${l}.x, 1.0) * step(0.0, q${l}.y) * step(q${l}.y, 1.0);`);
+        const at = `vec2(${lit(x0)}, ${lit(y0)})`;
+        const size = `vec2(${lit(x1 - x0)}, ${lit(y1 - y0)})`;
+        lines.push(`vec2 q${l} = (uv * ${lit(net.size)} - ${at}) / ${size};`);
+        lines.push(`vec2 s${l} = step(vec2(0.0), q${l}) * step(q${l}, vec2(1.0));`);
+        lines.push(`float in${l} = s${l}.x * s${l}.y;`);
         lines.push(`vec4 f${l} = mix(uOff[${l}], texture(uG${l}, q${l}), uMix[${l}] * in${l});`);
       } else {
         lines.push(`vec4 f${l} = mix(uOff[${l}], texture(uG${l}, uv), uMix[${l}]);`);
@@ -120,7 +124,9 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
       for (let c = 0; c < lv.F; c++) comps.push(`f${l}.${SWIZ[c]}`);
     });
     while (comps.length % 4) comps.push('0.0');
-    for (let i = 0; i < comps.length / 4; i++) lines.push(`vec4 a${i} = vec4(${comps.slice(4 * i, 4 * i + 4).join(', ')});`);
+    for (let i = 0; i < comps.length / 4; i++) {
+      lines.push(`vec4 a${i} = vec4(${comps.slice(4 * i, 4 * i + 4).join(', ')});`);
+    }
     let prev = 'a';
     layers.forEach(({ nIn, nOut, W, b }, li) => {
       const inB = Math.ceil(nIn / 4);
@@ -226,12 +232,18 @@ void main() {
       gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, buildFragment(net, layers)));
       gl.bindAttribLocation(prog, 0, 'aPos');
       gl.linkProgram(prog);
-      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('셰이더 링크 실패: ' + gl.getProgramInfoLog(prog));
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        throw new Error('셰이더 링크 실패: ' + gl.getProgramInfoLog(prog));
+      }
       gl.useProgram(prog);
       net.levels.forEach((_, l) => gl.uniform1i(gl.getUniformLocation(prog, 'uG' + l), l));
       gl.uniform4fv(gl.getUniformLocation(prog, 'uOff'), off);
       programs.push(prog);
-      return { prog, mixLoc: gl.getUniformLocation(prog, 'uMix'), resLoc: gl.getUniformLocation(prog, 'uRes') };
+      return {
+        prog,
+        mixLoc: gl.getUniformLocation(prog, 'uMix'),
+        resLoc: gl.getUniformLocation(prog, 'uRes'),
+      };
     }
     const main = program(net.layers);
     const intro = net.intro ? program(net.intro) : main;
@@ -327,7 +339,10 @@ void main() {
       }
       return { i0, i1, f, inside };
     };
-    const axes = net.levels.map(({ w, h, box }) => ({ x: axis(w, box[0], box[2]), y: axis(h, box[1], box[3]) }));
+    const axes = net.levels.map(({ w, h, box }) => ({
+      x: axis(w, box[0], box[2]),
+      y: axis(h, box[1], box[3]),
+    }));
     const widths = net.layers.map((l) => l.nOut);
     const bufs = [new Float32Array(net.layers[0].nIn)].concat(widths.map((w) => new Float32Array(w)));
 
@@ -389,7 +404,9 @@ void main() {
             while (y < n && performance.now() - start < 14) {
               const rows = Math.min(8, n - y);
               const img = ctx.createImageData(n, rows);
-              for (let r = 0; r < rows; r++) for (let x = 0; x < n; x++) pixel(x, y + r, mix, img.data, (r * n + x) * 4);
+              for (let r = 0; r < rows; r++) {
+                for (let x = 0; x < n; x++) pixel(x, y + r, mix, img.data, (r * n + x) * 4);
+              }
               ctx.putImageData(img, 0, y);
               y += rows;
             }
@@ -461,7 +478,8 @@ void main() {
         }
         const mix = levelMix(t, L).map((m, k) => m * full[k]);
         // 켜진 격자가 모두 픽셀 두 개에 한 칸 이하로 성기면 절반 해상도로도 충분하다.
-        if (net.levels.every((lv, k) => mix[k] === 0 || lv.w / (lv.box[2] - lv.box[0]) <= 0.5)) gpu.drawLow(mix);
+        const coarse = net.levels.every((lv, k) => mix[k] === 0 || lv.w / (lv.box[2] - lv.box[0]) <= 0.5);
+        if (coarse) gpu.drawLow(mix);
         else gpu.draw(mix, 'intro');
         if (t > RAMP) gpu.draw(full, 'main', C.smoothstep(RAMP, INTRO, t));
       };
