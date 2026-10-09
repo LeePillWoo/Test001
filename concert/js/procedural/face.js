@@ -3,6 +3,7 @@
 // 윤곽 다각형은 data/face.js(tools/proc_face.py가 원본에서 잰 좌표), 세부 기하는 아래 상수(손으로 잰 좌표).
 // 색은 모두 팔레트 상수에서 오고, 그라디언트·띠·림 규칙으로 칠한다. 정적인 얼굴은 prepare에서 한 장에 굽고,
 // 프레임마다 반짝이(귀걸이·콧등·눈동자 빛)만 얹는다.
+// 머리카락 레이어가 앞머리 영역(P.hairData.front)을 주면, 숨은 가장자리의 피부를 그 밑으로 넉넉히 넓혀 틈을 막는다.
 (function () {
   'use strict';
   const P = (window.ConcertProc = window.ConcertProc || {});
@@ -14,7 +15,6 @@
     skinCoral: '#f3968b',
     skinPink: '#fbc1b5',
     skinWarm: '#f6a39b',
-    skinRim: '#ec8580',
     skinShade: '#f3b0a5',
     rimLight: '#fff3ea',
     blush: '#f9a6a2',
@@ -23,13 +23,12 @@
     lineSoft: '#6e3436',
     lineRed: '#b8545b',
     lash: '#130810',
-    lashSoft: '#3a1a22',
+    lashRoot: '#6b5566',
     sclera: '#fbf5f5',
     scleraShade: '#cdb7c4',
-    iris: '#2e131c',
+    iris: '#220e16',
     irisMid: '#7a2e38',
     irisLow: '#c64c56',
-    lashRoot: '#6b5566',
     pupil: '#12060b',
     brow: '#93605d',
     browDark: '#6f4241',
@@ -144,9 +143,9 @@
   const MOUTH = {
     // 입술 바깥 윤곽(왼쪽 입꼬리에서 시계 방향)
     lips: [[827, 343], [834, 337.5], [845, 333.6], [858, 331.8], [872, 331.2], [886, 331.8], [900, 334.2],
-      [914, 338.8], [927, 345.5], [938, 354], [946, 361.5], [951, 368.5], [951, 371], [947, 377.5], [940.5, 387],
-      [932, 395.5], [920.5, 402.5], [906, 407.6], [890, 410], [875, 409.6], [862.5, 406], [852, 400], [843.5, 391.2],
-      [836.5, 380.6], [832.5, 368.5], [830, 355]],
+      [914, 338.8], [927, 345.5], [938, 354], [946, 361.5], [951, 368.5], [951, 371], [947, 377.5],
+      [940.5, 387], [932, 395.5], [920.5, 402.5], [906, 407.6], [890, 410], [875, 409.6], [862.5, 406],
+      [852, 400], [843.5, 391.2], [836.5, 380.6], [832.5, 368.5], [830, 355]],
     // 입 안(트임): 윗입술 아래 테두리(왼→오) + 아랫입술 안쪽 테두리(오→왼)
     open: [[826.5, 344], [834, 343.5], [849, 341.4], [870.8, 339.6], [892, 340.8], [908, 344.4], [922, 349.8],
       [936.6, 358.4], [946.6, 367.6], [952, 370.5], [942, 377], [932, 382.6], [921.5, 388], [908, 392.6],
@@ -184,36 +183,37 @@
   // 귀: 귓바퀴, 안쪽 밝은 면(대이륜·귓불), 귓바퀴 안 붉은 갈색 선, 인이어(셸·검은 노즐), 귀걸이(파베 보석)
   const EARS = [
     {
-      shell: [[716, 300], [722, 292], [732, 289], [742, 290], [750, 296], [755, 305], [758, 318], [761, 335],
-        [763, 352], [762, 366], [756, 372], [747, 374], [738, 374], [730, 370], [723, 362], [718, 350], [715, 335],
-        [714, 318]],
+      // 귓바퀴 오른쪽은 볼 밑으로 넉넉히 들어간다(얼굴이 위에 그려진다)
+      shell: [[716, 300], [722, 292], [732, 289], [742, 289], [752, 290], [762, 296], [770, 318],
+        [772, 345], [769, 366], [758, 373], [747, 374], [738, 374], [730, 370], [723, 362], [718, 350],
+        [715, 335], [714, 318]],
       inner: [[724, 318], [729, 312], [735, 309], [731, 320], [727, 334], [731, 346], [740, 350], [750, 350],
         [758, 352], [760, 364], [752, 370], [741, 370], [731, 364], [724, 352], [721, 336]],
       folds: [[[724, 320], [722, 332], [726, 344], [733, 350]], [[751, 348], [756, 356], [757, 366]]],
       shade: [726, 296, 30, 26],
-      monitor: [[742, 307], [747, 309], [748, 315], [746, 323], [745, 331], [748, 338], [750, 344], [744, 345.5],
-        [736, 343], [730.5, 337], [729, 329], [732, 319], [737, 311]],
+      monitor: [[742, 307], [747, 309], [748, 315], [746, 323], [745, 331], [748, 338], [750, 344],
+        [744, 345.5], [736, 343], [730.5, 337], [729, 329], [732, 319], [737, 311]],
       glint: [[744, 318], [742.5, 327], [744, 335]],
       canal: [[748, 310], [752, 313], [755, 320], [753, 328], [754, 336], [756, 343], [750, 345], [748, 338],
         [746, 330], [747, 321]],
-      earring: [[733, 352], [738, 348.5], [744, 349], [747.5, 354], [747, 362], [744, 369], [739, 372], [733.5, 370],
-        [730.5, 363], [730.5, 357]],
+      earring: [[733, 352], [738, 348.5], [744, 349], [747.5, 354], [747, 362], [744, 369], [739, 372],
+        [733.5, 370], [730.5, 363], [730.5, 357]],
       drop: [740, 375, 2],
     },
     {
-      shell: [[1003, 395], [1010, 380], [1018, 368], [1026, 358], [1036, 351], [1046, 350], [1053, 357], [1055, 370],
-        [1052, 386], [1045, 400], [1036, 410], [1028, 416], [1020, 421], [1012, 425], [1004, 425], [998, 418],
-        [996, 408]],
-      inner: [[1000, 404], [1010, 400], [1022, 401], [1032, 402], [1040, 399], [1036, 408], [1026, 414], [1014, 419],
-        [1004, 420], [998, 414]],
+      shell: [[1000, 395], [1003, 375], [1010, 358], [1022, 346], [1036, 345], [1046, 350], [1053, 357],
+        [1055, 370], [1052, 386], [1045, 400], [1036, 410], [1028, 416], [1020, 421], [1012, 425],
+        [1004, 425], [998, 418], [996, 408]],
+      inner: [[1000, 404], [1010, 400], [1022, 401], [1032, 402], [1040, 399], [1036, 408], [1026, 414],
+        [1014, 419], [1004, 420], [998, 414]],
       folds: [[[1004, 402], [1016, 398.5], [1030, 400]], [[1026, 362], [1038, 358], [1047, 362]]],
       shade: [1048, 366, 18, 28],
       monitor: [[1024, 369], [1030, 371], [1034.5, 378], [1036, 386], [1034, 394], [1028, 399.5], [1020, 400],
         [1013, 397], [1015, 391], [1020, 386], [1022, 378]],
       glint: [[1031, 377], [1033, 386], [1030, 394]],
       canal: [[1006, 394], [1010, 389], [1016, 387], [1021, 389], [1019, 396], [1013, 400], [1007, 400]],
-      earring: [[1012, 410], [1018, 407.5], [1024, 409], [1027, 414], [1026.5, 421], [1024, 428], [1018, 431.5],
-        [1012, 430], [1008, 424], [1008, 416]],
+      earring: [[1012, 410], [1018, 407.5], [1024, 409], [1027, 414], [1026.5, 421], [1024, 428],
+        [1018, 431.5], [1012, 430], [1008, 424], [1008, 416]],
       drop: null,
     },
   ];
@@ -304,16 +304,6 @@
     return w * (min + (1 - min) * Math.sqrt(Math.max(0, s)));
   };
 
-  function line(ctx, pts, w, color, alpha = 1) {
-    ctx.strokeStyle = rgba(color, alpha);
-    ctx.lineWidth = w;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.stroke();
-  }
-
   function ellipseGrad(ctx, cx, cy, rx, ry, rot, stops) {
     ctx.save();
     ctx.translate(cx, cy);
@@ -333,11 +323,12 @@
   // 앞머리 그늘(머리카락이 이마에 드리우는 그림자)
   const BANG_SHADE = [[818, 172, 40, 14, -0.2], [948, 118, 70, 22, 0.1]];
 
-  // 머리 윤곽을 굵게 흐려 그린 띠: 가장자리로 갈수록 따뜻하게 물드는 셀 음영
+  const SKIN_EXT = 16; // 앞머리 밑으로 피부를 넓히는 폭(px)
   // 조명을 정면으로 받는 왼쪽 볼 가장자리: 따뜻한 테두리 그늘을 빼는 곳
   const LIT_EDGE = [[740, 245], [800, 245], [805, 330], [800, 470], [740, 470]];
 
-  // 보이는 턱선 쪽(y0 아래)과 밝은 왼쪽 볼은 밝게 두도록 테두리 그늘을 지운다
+  // 머리 윤곽을 굵게 흐려 그린 띠: 가장자리로 갈수록 따뜻하게 물드는 셀 음영.
+  // 보이는 턱선 쪽(y0 아래)과 밝은 왼쪽 볼은 밝게 두도록 지운다.
   function edgeGlow(env, path, color, width, blur, alpha, y0, y1) {
     const c = env.makeCanvas(env.W, env.H);
     const g = c.getContext('2d');
@@ -360,12 +351,36 @@
     return c;
   }
 
-  function drawSkin(ctx, env, D, C) {
+  // 피부 바탕: 머리 윤곽 + (앞머리가 덮는 곳이면) 숨은 가장자리를 머리카락 밑으로 넉넉히 넓힌 띠
+  function skinMask(env, D, head) {
+    const c = env.makeCanvas(env.W, env.H);
+    const g = c.getContext('2d');
+    g.fillStyle = PAL.skin;
+    g.fill(head);
+    const hd = P.hairData;
+    if (hd && hd.front) {
+      const front = new Path2D();
+      for (const r of hd.front) front.addPath(polyPath(pairs(r)));
+      const hidden = new Path2D(`M0 0H${env.W}V${env.H}H0Z`);
+      hidden.addPath(polyPath(pairs(D.visible)));
+      g.save();
+      g.clip(front, 'evenodd');
+      g.clip(hidden, 'evenodd');
+      g.strokeStyle = PAL.skin;
+      g.lineWidth = SKIN_EXT * 2;
+      g.lineJoin = 'round';
+      g.stroke(head);
+      g.restore();
+    }
+    return c;
+  }
+
+  // 음영은 모두 피부 바탕 캔버스 위에 source-atop으로 칠해 바탕 밖으로 나가지 않게 한다
+  function drawSkin(out, env, D) {
     const head = polyPath(pairs(D.head));
-    ctx.fillStyle = PAL.skin;
-    ctx.fill(head);
-    ctx.save();
-    ctx.clip(head);
+    const skin = skinMask(env, D, head);
+    const ctx = skin.getContext('2d');
+    ctx.globalCompositeOperation = 'source-atop';
     // 가장자리 전체: 따뜻한 분홍으로 물든다
     ctx.drawImage(edgeGlow(env, head, PAL.skinWarm, 30, 9, 0.55, 300, 360), 0, 0);
     // 왼쪽 아래 볼·턱: 무대 조명을 받은 밝은 면
@@ -391,7 +406,7 @@
     for (const seg of D.contour) {
       const pts = [];
       for (let i = 0; i < seg.length; i += 3) {
-        if (seg[i] < 805 && seg[i + 1] < 445) pts.push([seg[i] + 3, seg[i + 1]]);
+        if (seg[i] < 800 && seg[i + 1] < 410) pts.push([seg[i] + 3, seg[i + 1]]);
       }
       if (pts.length < 2) continue;
       ctx.filter = 'blur(2px)';
@@ -400,7 +415,7 @@
       ctx.filter = 'none';
     }
     drawBlush(ctx, env);
-    ctx.restore();
+    out.drawImage(skin, 0, 0);
   }
 
   function drawBlush(ctx, env) {
@@ -425,7 +440,7 @@
     }
   }
 
-  // 얼굴 윤곽선: 조명을 받는 왼쪽 위는 가늘고 붉은 갈색, 턱 아래·오른쪽은 굵고 짙은 갈색
+  // 얼굴 윤곽선(굵기는 원본에서 잰 값): 조명을 받는 왼쪽 볼은 붉은 갈색, 턱 아래·오른쪽은 짙은 갈색
   function drawContour(ctx, D) {
     for (const seg of D.contour) {
       const pts = [];
@@ -442,13 +457,13 @@
       };
       const ends = (u) => Math.min(1, u * 10, (1 - u) * 10);
       ctx.fillStyle = rgba(PAL.lineRed, 0.9);
-      taper(ctx, pts, (u) => Math.max(0.8, wAt(u)) * (0.3 + 0.7 * ends(u)), 6);
+      taper(ctx, pts, (u) => Math.max(0.8, wAt(u) * 0.8) * (0.3 + 0.7 * ends(u)), 6);
       // 짙은 선은 아래쪽에서만: 위치에 따라 투명도를 바꾼 그라디언트로 덧칠
       const g = ctx.createLinearGradient(775, 345, 800, 400);
       g.addColorStop(0, rgba(PAL.line, 0));
       g.addColorStop(1, rgba(PAL.line, 0.95));
       ctx.fillStyle = g;
-      taper(ctx, pts, (u) => Math.max(0.8, wAt(u)) * 0.9 * (0.3 + 0.7 * ends(u)), 6);
+      taper(ctx, pts, (u) => Math.max(0.8, wAt(u) * 0.8) * 0.9 * (0.3 + 0.7 * ends(u)), 6);
     }
   }
 
@@ -587,15 +602,15 @@
     ctx.clip(iris);
     // 초승달은 아래 눈꺼풀 바로 위(보이는 홍채의 아래쪽)에 둔다
     const lid = e.lower.reduce((best, p) => (Math.abs(p[0] - ix) < Math.abs(best[0] - ix) ? p : best));
-    ellipseGrad(ctx, ix - ir * 0.1, lid[1] - ir * 0.05, ir * 0.95, ir * 0.42, 0, [
+    ellipseGrad(ctx, ix - ir * 0.1, lid[1] - ir * 0.1, ir * 0.95, ir * 0.4, 0, [
       [0, rgba(PAL.irisLow, 1)],
       [0.45, rgba(PAL.irisLow, 0.9)],
       [0.75, rgba(PAL.irisMid, 0.7)],
       [1, rgba(PAL.irisMid, 0)],
     ]);
     // 오른쪽 위로 비치는 옅은 자줏빛 반사
-    ellipseGrad(ctx, ix + ir * 0.5, iy - ir * 0.05, ir * 0.32, ir * 0.3, 0, [
-      [0, rgba(PAL.irisMid, 0.9)],
+    ellipseGrad(ctx, ix + ir * 0.5, iy - ir * 0.05, ir * 0.3, ir * 0.28, 0, [
+      [0, rgba(PAL.irisMid, 0.55)],
       [1, rgba(PAL.irisMid, 0)],
     ]);
     // 안쪽 결: 동공에서 뻗는 옅은 선
@@ -622,7 +637,7 @@
     ctx.save();
     ctx.translate(0, 4);
     ctx.filter = 'blur(2.5px)';
-    ctx.fillStyle = rgba(PAL.pupil, 0.88);
+    ctx.fillStyle = rgba(PAL.pupil, 0.92);
     ctx.fill(smoothPath2D(C, bandPts, true));
     ctx.restore();
     ctx.restore();
@@ -930,7 +945,7 @@
       const canvas = env.makeCanvas(env.W, env.H);
       const ctx = canvas.getContext('2d');
       drawEars(ctx, env, C);
-      drawSkin(ctx, env, D, C);
+      drawSkin(ctx, env, D);
       drawContour(ctx, D);
       drawBrows(ctx, env, C);
       const eyeRng = env.rng('face-eye');
@@ -944,10 +959,11 @@
     draw(ctx, state, t) {
       ctx.drawImage(state.canvas, 0, 0);
       if (!t) return;
-      // 0에서 시작해 부드럽게 켜졌다 꺼지는 반짝임 (같은 t면 같은 그림)
+      // 처음 1.5초 동안 서서히 켜지고, 각자 다른 빠르기로 짧게 반짝인다 (같은 t면 같은 그림)
+      const fade = Math.min(1, t / 1.5);
       ctx.globalCompositeOperation = 'lighter';
       for (const gl of state.glints) {
-        const k = Math.pow(0.5 - 0.5 * Math.cos(t * gl.w + gl.ph * Math.min(1, t)), 3);
+        const k = fade * Math.pow(0.5 - 0.5 * Math.cos(t * gl.w + gl.ph), 3);
         if (k < 0.02) continue;
         ctx.globalAlpha = k * 0.9;
         const R = gl.img.width / 2;

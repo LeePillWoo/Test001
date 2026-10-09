@@ -8,6 +8,7 @@
 
 잰 것
     head      얼굴 피부 윤곽(귀 제외). 머리카락이 덮는 쪽은 4픽셀 넓혀 이음매 틈을 막는다.
+    visible   윤곽선이 드러나는 범위(볼·턱). 이 밖에서만 피부를 머리카락 밑으로 더 넓혀도 된다.
     contour   보이는 턱선·볼선 위의 점과 그 자리의 선 굵기 [x, y, w, ...]
     mouthDark 입 안 어두운 구석(입술 영역 안의 어두운 색)
     noseHl    콧등 하이라이트
@@ -184,8 +185,11 @@ def head_parts(face, L):
         for k in sel:
             out += [round(float(pts[k][0]), 1), round(float(pts[k][1]), 1), round(float(widths[k]), 2)]
         lines.append(out)
-    poly_i = cv2.approxPolyDP(np.round(poly).astype(np.int32).reshape(-1, 1, 2), 1.0, True).reshape(-1)
-    return [int(v) for v in poly_i], lines, head_big
+    # 넓힌 곳과 선을 따른 곳의 이음매 계단을 곡선을 따라 흐려 없앤다
+    poly = smooth1d(poly, 3.0, True)
+    poly_i = cv2.approxPolyDP(np.round(poly * 2).astype(np.int32).reshape(-1, 1, 2), 1.6, True).reshape(-1, 2)
+    poly_i = (poly_i / 2.0).reshape(-1)
+    return [round(float(v), 1) for v in poly_i], lines, head_big
 
 
 def mouth_parts(L, A, C, shape):
@@ -225,6 +229,7 @@ def main():
 
     data = {
         'head': head_poly,
+        'visible': [int(v) for xy in VISIBLE for v in xy],
         'contour': contour,
         'mouthDark': rings(dark, eps=0.7, min_area=8, sigma=0),
         'noseHl': rings(nose, eps=0.7, sigma=0)[0],
