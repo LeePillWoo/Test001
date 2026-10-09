@@ -44,6 +44,7 @@ concert/            코드로 그린 무대 (concert/README.md)
 
 일러스트 한 장을 절차적 드로잉, 도형 최적화, 붓질 렌더링, 벡터 트레이싱, 신경망 기억, 다섯 가지 코드 기법으로
 다시 그리고 원본과 비교하는 페이지입니다. 자세한 내용은 [concert/README.md](concert/README.md)에 있습니다.
+데모: https://claude.ai/artifact/2x6zAaiQygBoDyvbaLB1YH
 
 ```bash
 npm start          # http://localhost:8080/concert/

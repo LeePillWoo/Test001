@@ -7,6 +7,7 @@
 ![원본과 다섯 기법](assets/lineup.jpg)
 
 왼쪽부터 원본, 절차적 드로잉, 도형 최적화, 붓질 렌더링, 벡터 트레이싱, 신경망 기억입니다.
+데모(Claude 아티팩트): https://claude.ai/artifact/2x6zAaiQygBoDyvbaLB1YH
 
 ## 기법
 
