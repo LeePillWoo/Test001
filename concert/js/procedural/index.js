@@ -5,11 +5,16 @@
 //   drawBack / drawFront / draw (ctx, state, t, env)
 //       t는 초 단위 시각. t=0 장면이 원본 구도와 같아야 하고, 같은 t면 언제나 같은 그림이어야 한다.
 //       ctx 상태(save/restore)는 오케스트레이터가 감싸 준다.
+//   bake(ctx, state, env) → 무엇이든 또는 Promise   (선택)
+//       모든 prepare가 끝난 뒤 한 번 불린다. 이때 ctx에는 t=0 장면이 이 모듈의 첫 차례 바로 앞까지
+//       그려져 있다. 아래 장면 전체에 기대는 무거운 처리(예: fx의 번짐)를 매 프레임 하지 않고 여기서
+//       한 번 구워 둔다. 결과는 t=0 장면에만 기대므로 renderAt(t)는 그전에 무엇을 그렸든 같은 그림이 된다.
 //
 // 디버그 주소 옵션
 //   layers=stage,hair     그 모듈만 그린다
 //   under=ref             맨 아래에 원본을 깐다 (레이어 하나만 원본 위에서 맞춰 볼 때)
 //   onion=0.5             맨 위에 원본을 그 불투명도로 덮는다
+// 준비·굽기에 걸린 시간(ms)은 window.ConcertProc.timing에 남는다.
 (function () {
   'use strict';
   const C = window.ConcertCore;
@@ -64,14 +69,19 @@
         core: C,
       };
 
+      const timing = (P.timing = { prepare: {} });
       const states = {};
-      for (const name of MODULES) {
+      const ready = MODULES.filter((name) => P[name] && enabled.has(name));
+      for (const name of ready) {
         const mod = P[name];
-        if (!mod || !enabled.has(name)) continue;
+        const tp = performance.now();
         states[name] = mod.prepare ? await mod.prepare(env) : {};
+        timing.prepare[name] = Math.round(performance.now() - tp);
       }
+      // 실제로 그릴 차례만 남긴다
+      const steps = ORDER.filter(([name, fn]) => ready.includes(name) && typeof P[name][fn] === 'function');
 
-      function frame(t) {
+      function begin() {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
@@ -82,21 +92,47 @@
           ctx.fillStyle = '#808080';
           ctx.fillRect(0, 0, W, H);
         }
-        for (const [name, fn] of ORDER) {
-          const mod = P[name];
-          if (!mod || !enabled.has(name) || typeof mod[fn] !== 'function') continue;
-          ctx.save();
-          try {
-            mod[fn](ctx, states[name], t, env);
-          } finally {
-            ctx.restore();
-          }
+      }
+
+      function drawStep([name, fn], t) {
+        ctx.save();
+        try {
+          P[name][fn](ctx, states[name], t, env);
+        } finally {
+          ctx.restore();
         }
+      }
+
+      function frame(t) {
+        begin();
+        for (const step of steps) drawStep(step, t);
         if (ref && onion > 0) {
           ctx.globalAlpha = onion;
           ctx.drawImage(ref, 0, 0, W, H);
           ctx.globalAlpha = 1;
         }
+      }
+
+      // 굽기: t=0 장면을 차례대로 그리다가 bake가 있는 모듈의 첫 차례 앞에서 그때까지의 장면을 넘긴다
+      const bakers = ready.filter((name) => typeof P[name].bake === 'function');
+      if (bakers.length) {
+        const tb = performance.now();
+        const left = new Set(bakers);
+        begin();
+        for (const step of steps) {
+          const name = step[0];
+          if (left.delete(name)) {
+            ctx.save();
+            try {
+              await P[name].bake(ctx, states[name], env);
+            } finally {
+              ctx.restore();
+            }
+          }
+          if (!left.size) break;
+          drawStep(step, 0);
+        }
+        timing.bake = Math.round(performance.now() - tb);
       }
 
       let playing = !!opts.animate;
@@ -114,9 +150,9 @@
       return {
         destroy() {
           cancelAnimationFrame(raf);
-          for (const name of MODULES) {
+          for (const name of ready) {
             const mod = P[name];
-            if (mod && mod.dispose && states[name]) mod.dispose(states[name]);
+            if (mod.dispose && states[name]) mod.dispose(states[name]);
           }
         },
         renderAt(t) {

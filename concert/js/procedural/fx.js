@@ -1,6 +1,8 @@
 // 절차적 드로잉 레이어: fx — 다 그린 화면에 얹는 후처리.
 // 밝은 곳 번짐(bloom), 원본 팔레트 쪽으로의 옅은 색 보정과 비네트·입자(한 장), 반짝이는 네 갈래 별빛.
 // 모두 약하게 걸고 맨 위 상수로 조절한다. 다른 레이어가 없어도 동작하고, 인물의 선과 디테일을 덮지 않는다.
+// 번짐은 bake에서 t=0 장면으로 한 번 굽고(매 프레임 전체 화면을 줄이고 흐리고 늘리면 10ms쯤 든다),
+// 매 프레임에는 다 된 한 장을 screen으로 얹기만 한다. 움직이는 것들의 번짐은 t=0 자리에 머문다.
 // 조절용 주소 옵션 (상수에 곱하는 배율, 0이면 끔): bloom=, grade=, vignette=, grain=, glints=
 //   예) layers=stage,fx&bloom=0   번짐 없이 보기
 (function () {
@@ -25,12 +27,8 @@
   // 피부 보호: 공용 분석 데이터의 피부·얼굴 윤곽 안에서는 번짐과 색 보정을 이만큼 덜어 낸다.
   // 다른 레이어가 맞춘 피부색을 fx가 바꾸지 않게 한다 (윤곽 데이터가 없으면 건너뛴다).
   const PROTECT = { bloom: 0.8, grade: 0.8, blur: 6 };
-  // 네 갈래 별빛: x, y, 크기, 색 (원본의 반짝이는 자리)
+  // 네 갈래 별빛: x, y, 크기, 색 (원본의 반짝이는 자리). 드레스·치마 위의 별빛은 body가 그린다.
   const GLINTS = [
-    [200, 1031, 15, '#ffd0f4'],
-    [514, 1199, 18, '#ffc0ec'],
-    [111, 988, 11, '#ffffff'],
-    [161, 906, 10, '#ffe8fa'],
     [1219, 925, 22, '#d8e4ff'],
     [565, 1047, 9, '#ffffff'],
     [38, 1120, 9, '#e0e8ff'],
@@ -128,11 +126,36 @@
     return c;
   }
 
+  // 번짐의 바탕: 화면을 축소하며 부드러운 문턱을 걸고, 흐린 뒤 피부 가림판만큼 덜어 낸 작은 캔버스
+  function bloomSoft(src, state, env) {
+    if (!state.small) {
+      const sw = Math.round(env.W * BLOOM.scale);
+      const sh = Math.round(env.H * BLOOM.scale);
+      state.small = env.makeCanvas(sw, sh);
+      state.soft = env.makeCanvas(sw, sh);
+    }
+    const sg = state.small.getContext('2d');
+    sg.globalCompositeOperation = 'copy';
+    sg.filter = BLOOM.filter;
+    sg.drawImage(src, 0, 0, state.small.width, state.small.height);
+    sg.filter = 'none';
+    const bg = state.soft.getContext('2d');
+    bg.globalCompositeOperation = 'copy';
+    bg.filter = `blur(${BLOOM.blur}px)`;
+    bg.drawImage(state.small, 0, 0);
+    bg.filter = 'none';
+    if (state.protect) {
+      bg.globalCompositeOperation = 'destination-out';
+      bg.globalAlpha = PROTECT.bloom;
+      bg.drawImage(state.protect, 0, 0);
+      bg.globalAlpha = 1;
+    }
+    return state.soft;
+  }
+
   P.fx = {
     async prepare(env) {
       const { W, H } = env;
-      const sw = Math.round(W * BLOOM.scale);
-      const sh = Math.round(H * BLOOM.scale);
       const rng = env.rng('fx');
       const k = {
         bloom: knob(env, 'bloom'),
@@ -143,8 +166,9 @@
       };
       const state = {
         k,
-        small: env.makeCanvas(sw, sh),
-        soft: env.makeCanvas(sw, sh),
+        small: null, // 번짐 작업용 축소 캔버스 (처음 쓸 때 만든다)
+        soft: null,
+        bloom: null, // bake가 구운 번짐 한 장 (원래 크기)
         glints: GLINTS.map(([x, y, size, color]) => ({
           x,
           y,
@@ -182,34 +206,32 @@
       return state;
     },
 
+    // t=0 장면에서 번짐을 한 번 굽는다: 원래 크기로 늘린 한 장 (세기는 얹을 때 곱해야 반올림이 덜 쌓인다)
+    async bake(ctx, state, env) {
+      if (state.k.bloom <= 0) return;
+      const { W, H } = env;
+      const full = env.makeCanvas(W, H);
+      const fg = full.getContext('2d');
+      fg.imageSmoothingEnabled = true;
+      fg.drawImage(bloomSoft(ctx.canvas, state, env), 0, 0, W, H);
+      state.bloom = await freeze(full);
+      state.small = state.soft = null;
+    },
+
     draw(ctx, state, t, env) {
       const { W, H } = env;
-      const src = ctx.canvas;
-
       const k = state.k;
 
-      // 번짐: 축소 → 부드러운 문턱 → 흐림 → 원래 크기로 늘려 screen
+      // 번짐: 구워 둔 한 장이 있으면 그것을, 없으면 (bake를 부르지 않는 곳에서) 매 프레임 만들어 screen
       if (k.bloom > 0) {
-        const sg = state.small.getContext('2d');
-        sg.globalCompositeOperation = 'copy';
-        sg.filter = BLOOM.filter;
-        sg.drawImage(src, 0, 0, state.small.width, state.small.height);
-        sg.filter = 'none';
-        const bg = state.soft.getContext('2d');
-        bg.globalCompositeOperation = 'copy';
-        bg.filter = `blur(${BLOOM.blur}px)`;
-        bg.drawImage(state.small, 0, 0);
-        bg.filter = 'none';
-        if (state.protect) {
-          bg.globalCompositeOperation = 'destination-out';
-          bg.globalAlpha = PROTECT.bloom;
-          bg.drawImage(state.protect, 0, 0);
-          bg.globalAlpha = 1;
-        }
         ctx.globalCompositeOperation = BLOOM.op;
         ctx.globalAlpha = Math.min(1, BLOOM.alpha * k.bloom);
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(state.soft, 0, 0, W, H);
+        if (state.bloom) ctx.drawImage(state.bloom, 0, 0);
+        else {
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(bloomSoft(ctx.canvas, state, env), 0, 0, W, H);
+        }
+        ctx.globalAlpha = 1;
       }
 
       // 색 보정 + 비네트 + 입자 (overlay: soft-light와 거의 같은 인상에 훨씬 싸다)

@@ -1231,22 +1231,38 @@
         ctx.drawImage(state.dot, p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
       }
       // 빛줄기: 대각선 띠가 드레스를 천천히 쓸고 지나간다 (t=0에서 세기 0)
+      // 띠가 지나는 곳만 32줄씩 잘라 tmp에 만들고(clip 안에서만 destination-in), 다 만든 뒤에 얹는다.
+      // tmp를 고치는 사이사이에 얹으면 얹을 때마다 tmp 전체를 복사해 오히려 느려진다.
       const amp = 0.5 - 0.5 * Math.cos((t * 2 * Math.PI) / 9);
       if (amp > 0.01) {
         const g = state.tmp.getContext('2d');
         const pos = ((t / 9) % 1) * 1600 - 300;
-        g.globalCompositeOperation = 'copy';
-        g.globalAlpha = 1;
-        g.drawImage(state.spec, 0, 0);
-        g.globalCompositeOperation = 'destination-in';
         const lg = g.createLinearGradient(pos - 160, 700, pos + 160, 1100);
         lg.addColorStop(0, 'rgba(0,0,0,0)');
         lg.addColorStop(0.5, 'rgba(0,0,0,1)');
         lg.addColorStop(1, 'rgba(0,0,0,0)');
-        g.fillStyle = lg;
-        g.fillRect(0, 700, 1254, 554);
+        // 그라디언트 축이 (320, 400)이라 y줄의 띠는 x = pos - 160 - 1.25(y - 700)부터 820px
+        const strips = [];
+        for (let y = 700; y < 1254; y += 32) {
+          const h = Math.min(32, 1254 - y);
+          const x0 = Math.max(0, Math.floor(pos - 160 - 1.25 * (y + h - 700)));
+          const x1 = Math.min(1254, Math.ceil(pos + 660 - 1.25 * (y - 700)));
+          if (x1 <= x0) continue;
+          const w = x1 - x0;
+          g.save();
+          g.beginPath();
+          g.rect(x0, y, w, h);
+          g.clip();
+          g.globalCompositeOperation = 'copy';
+          g.drawImage(state.spec, x0, y, w, h, x0, y, w, h);
+          g.globalCompositeOperation = 'destination-in';
+          g.fillStyle = lg;
+          g.fillRect(x0, y, w, h);
+          g.restore();
+          strips.push([x0, y, w, h]);
+        }
         ctx.globalAlpha = 0.8 * amp;
-        ctx.drawImage(state.tmp, 0, 0);
+        for (const [x, y, w, h] of strips) ctx.drawImage(state.tmp, x, y, w, h, x, y, w, h);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';

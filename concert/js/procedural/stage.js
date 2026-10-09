@@ -4,8 +4,10 @@
 // 색은 팔레트에서 골라 그라디언트·노이즈·흐림으로 칠한다. 배경은 인물보다 흐리게(ctx.filter blur) 둔다.
 //
 // 층 순서: far(바탕 번짐·빛 띠) → 빔 → near(트러스·관객·연무·LED 판·보케·조명기구·
-// 머리카락 뒤 역광) → 조명 → 색종이 → 응원봉
-// far와 near는 prepare에서 한 장씩 미리 그리고, 움직이는 것만 스프라이트로 매 프레임 얹는다.
+// 머리카락 뒤 역광) → 빔의 숨 → LED 반짝임 → 조명 → 색종이 → 응원봉
+// far·빔·near는 prepare에서 한 장으로 굽고(빔은 t=0 자리에 멈춰 있다), 움직이는 것만 스프라이트로
+// 매 프레임 얹는다. 큰 스프라이트를 프레임마다 돌려 그리면 비싸서(소프트웨어 래스터에서 픽셀당 수 ns)
+// 빔은 흔드는 대신 무리별로 숨 쉬듯 밝아지고, 응원봉은 미리 세워 둔 한 장을 정수 칸만큼 옮긴다.
 // 디버그 주소 옵션: stage=far (바탕 한 장만), stage=beams (검은 바탕에 빔만)
 (function () {
   'use strict';
@@ -85,17 +87,18 @@
     [1080, 1215, 90, 45, 0, '#b01050', 0.6],
   ];
 
-  // 볼륨 빔: [광원 x, y, 방향°, 길이, 시작 폭, 끝 폭, 색, 세기, 가장자리 흐림, 합성, 흔들림°, 선택]
+  // 볼륨 빔: [광원 x, y, 방향°, 길이, 시작 폭, 끝 폭, 색, 세기, 가장자리 흐림, 합성, 숨 무리, 선택]
+  // 숨 무리: BEAM_PULSE의 번호 (0이면 밝아지지 않는다)
   // 선택: fadeIn·fade(길이 비율로 밝아지기 시작·사라지기 시작), haze(빔 결을 따라 흐르는 연무의 세기)
   const BEAMS = [
     // 위 가운데 조명의 빨간 빔 (광원을 화면 위 바깥에 두어 폭을 맞췄다), 붉은 심, 자홍 가장자리
-    [250, -200, 69, 640, 95, 210, '#ff1438', 1, 24, 'source-over', 3, { fade: 0.78, haze: 0.12 }],
-    [326, -10, 72, 320, 30, 100, '#ff4a50', 0.5, 14, 'lighter', 3],
-    [300, 40, 78, 200, 30, 50, '#c01860', 0.5, 14, 'screen', 3],
+    [250, -200, 69, 640, 95, 210, '#ff1438', 1, 24, 'source-over', 1, { fade: 0.78, haze: 0.12 }],
+    [326, -10, 72, 320, 30, 100, '#ff4a50', 0.5, 14, 'lighter', 1],
+    [300, 40, 78, 200, 30, 50, '#c01860', 0.5, 14, 'screen', 1],
     // (430,215) 조명에서 왼쪽 아래로 퍼지는 파란 원뿔과 또렷한 하늘색 심, 광원 가까이의 흰 심
-    [430, 215, 125, 520, 20, 300, '#3a48ff', 1, 18, 'source-over', 4, { fadeIn: 0.35, fade: 0.8, haze: 0.1 }],
-    [430, 215, 127, 240, 12, 60, '#3a8cff', 1, 5, 'screen', 4, { fade: 0.55 }],
-    [430, 215, 127, 100, 6, 20, '#c8dcff', 0.9, 4, 'screen', 4, { fade: 0.3 }],
+    [430, 215, 125, 520, 20, 300, '#3a48ff', 1, 18, 'source-over', 2, { fadeIn: 0.35, fade: 0.8, haze: 0.1 }],
+    [430, 215, 127, 240, 12, 60, '#3a8cff', 1, 5, 'screen', 2, { fade: 0.55 }],
+    [430, 215, 127, 100, 6, 20, '#c8dcff', 0.9, 4, 'screen', 2, { fade: 0.3 }],
     // 같은 조명에서 오른쪽(머리카락 쪽)으로 번지는 남보라 부채 (원본 (480-640, 180-235)의 띠,
     // tools/proc_stage.py fan으로 잰 가운데 방향 약 -8°)
     [430, 215, -6, 300, 12, 60, '#4430d8', 0.75, 7, 'source-over', 3,
@@ -103,12 +106,20 @@
     [430, 215, -8, 260, 6, 30, '#3a48ff', 0.5, 6, 'screen', 3, { fadeIn: 0.45, fade: 0.7, haze: 0.2 }],
     // 오른쪽 위로 비스듬한 파란 빛, 왼쪽 위 보라 빛줄기, 별빛 조명의 분홍 꼬리, 오른쪽 위 파란 조각
     [565, 150, 25, 220, 30, 120, '#2e44f0', 0.75, 14, 'screen', 3],
-    [222, -30, 92, 150, 50, 70, PAL.violet, 0.3, 16, 'screen', 2],
-    [226, 312, 117, 110, 14, 20, '#ffa8f4', 0.75, 4, 'screen', 2],
-    [1122, -16, 132, 66, 24, 26, '#1a5cff', 1, 5, 'screen', 2],
-  ].map(([x, y, ang, len, w0, w1, color, a, soft, op, sweep, more]) => ({
-    x, y, ang, len, w0, w1, color, a, soft, op, sweep, ...more,
+    [222, -30, 92, 150, 50, 70, PAL.violet, 0.3, 16, 'screen', 0],
+    [226, 312, 117, 110, 14, 20, '#ffa8f4', 0.75, 4, 'screen', 0],
+    [1122, -16, 132, 66, 24, 26, '#1a5cff', 1, 5, 'screen', 0],
+  ].map(([x, y, ang, len, w0, w1, color, a, soft, op, pulse, more]) => ({
+    x, y, ang, len, w0, w1, color, a, soft, op, pulse, ...more,
   }));
+  // 빔의 숨: 무리의 빔을 더한 빛을 near 아래로 비치는 만큼만 screen으로 얹는다 (t=0에서 0).
+  // 빔 자체는 바탕과 함께 구워 두므로 프레임마다 회전 그리기가 없다.
+  // 무리마다 [최대 세기, 빠르기(rad/s), 밝아질 때 물드는 색]
+  const BEAM_PULSE = {
+    1: [0.3, 0.9, '#ff9aac'],
+    2: [0.35, 0.65, '#a0b8ff'],
+    3: [0.4, 1.15, '#b0a0ff'],
+  };
 
   // 트러스: 가운데 선이 지나는 점들 pts, 두 현 사이 폭 d0→d1 (왼쪽 아래가 가까워 넓고 오른쪽 위로 좁아진다),
   // 칸 수 n, 흐림 blur(초점이 먼 만큼). 길이 방향(s: 0..1) 표는 조각별 직선으로 잇는다.
@@ -421,6 +432,33 @@
     }
   }
 
+  // filter(흐림)를 건 그리기를 둘레 상자만 한 작은 캔버스에서 하고 결과를 g의 현재 합성·불투명도로 얹는다.
+  // 큰 캔버스에 filter를 바로 걸면 그리는 크기와 상관없이 캔버스 전체만 한 층을 거쳐 한 번에 약 20ms가 든다.
+  // box는 화면 좌표 [x, y, w, h]로, 흐림이 번질 여백(3σ)까지 넣는다. draw(cg)는 화면 좌표로 그린다.
+  function boxFilter(env, g, box, filter, draw) {
+    const x = Math.floor(box[0]);
+    const y = Math.floor(box[1]);
+    const c = env.makeCanvas(Math.ceil(box[0] + box[2]) - x, Math.ceil(box[1] + box[3]) - y);
+    const cg = c.getContext('2d');
+    cg.translate(-x, -y);
+    cg.filter = filter;
+    draw(cg);
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.filter = 'none';
+    g.drawImage(c, x, y);
+    g.restore();
+  }
+
+  // 점 [[x, y], ...]들을 감싸는 상자 [x, y, w, h]에 여백 m
+  function boxAround(pts, m) {
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const x = Math.min(...xs) - m;
+    const y = Math.min(...ys) - m;
+    return [x, y, Math.max(...xs) + m - x, Math.max(...ys) + m - y];
+  }
+
   // ── 빔 스프라이트: 광원이 왼쪽 가운데, +x 방향으로 퍼지는 원뿔 ─────────
   function makeBeam(env, b) {
     const pad = Math.ceil(b.soft * 3);
@@ -462,6 +500,76 @@
     g.drawImage(nz, 0, 0, cw, ch);
     g.globalCompositeOperation = 'source-over';
     return { canvas: c, pad, cy };
+  }
+
+  // 빔 하나를 광원 자리에서 제 방향으로 그린다
+  function drawBeam(g, { b, s }, op = b.op) {
+    g.save();
+    g.globalCompositeOperation = op;
+    g.translate(b.x, b.y);
+    g.rotate(b.ang * DEG);
+    g.drawImage(s.canvas, -s.pad, -s.cy);
+    g.restore();
+  }
+
+  // 빔의 숨 한 무리: 무리의 빔을 더한 빛(밝은 쪽으로 물들인)에서 near가 가리는 만큼 덜어 낸 한 장
+  function makePulse(env, group, near, [amp, w, tint]) {
+    const xs = [];
+    const ys = [];
+    for (const { b, s } of group) {
+      const c = Math.cos(b.ang * DEG);
+      const sn = Math.sin(b.ang * DEG);
+      for (const u of [-s.pad, s.canvas.width - s.pad]) {
+        for (const v of [-s.cy, s.canvas.height - s.cy]) {
+          xs.push(b.x + u * c - v * sn);
+          ys.push(b.y + u * sn + v * c);
+        }
+      }
+    }
+    const x0 = Math.max(0, Math.floor(Math.min(...xs)));
+    const y0 = Math.max(0, Math.floor(Math.min(...ys)));
+    const x1 = Math.min(env.W, Math.ceil(Math.max(...xs)));
+    const y1 = Math.min(env.H, Math.ceil(Math.max(...ys)));
+    const c = env.makeCanvas(x1 - x0, y1 - y0);
+    const g = c.getContext('2d');
+    g.translate(-x0, -y0);
+    for (const o of group) drawBeam(g, o, 'lighter');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = rgba(tint, 0.5);
+    g.fillRect(0, 0, c.width, c.height);
+    g.globalCompositeOperation = 'destination-out';
+    g.drawImage(near, x0, y0, c.width, c.height, 0, 0, c.width, c.height);
+    return { canvas: c, x: x0, y: y0, amp, w, strips: litStrips(c, 24) };
+  }
+
+  // 투명하지 않은 곳만 덮는 가로 띠들 [x, y, w, h] (step줄씩). 비스듬한 빔 상자의 빈 구석을 건너뛴다.
+  function litStrips(c, step) {
+    const { width: w, height: h } = c;
+    const a = c.getContext('2d').getImageData(0, 0, w, h).data;
+    const out = [];
+    for (let y0 = 0; y0 < h; y0 += step) {
+      const y1 = Math.min(h, y0 + step);
+      let x0 = w;
+      let x1 = 0;
+      for (let y = y0; y < y1; y++) {
+        const row = y * w * 4 + 3;
+        for (let x = 0; x < x0; x++) {
+          if (a[row + x * 4]) {
+            x0 = x;
+            break;
+          }
+        }
+        for (let x = w - 1; x >= x1; x--) {
+          if (a[row + x * 4]) {
+            x1 = x + 1;
+            break;
+          }
+        }
+      }
+      if (x1 > x0) out.push([x0, y0, x1 - x0, y1 - y0]);
+    }
+    return out;
   }
 
   // ── 별빛 조명 스프라이트 ───────────────────────────────────
@@ -565,6 +673,29 @@
     g.filter = 'none';
     g.globalAlpha = 1;
     return { canvas: c, pad, wid, len };
+  }
+
+  // 응원봉을 손잡이 끝 (x0, y0)에서 제 각도로 세워 화면 방향 한 장으로 (매 프레임에는 정수 칸만큼 옮겨 얹는다)
+  function standStick(env, x0, y0, ang, sp) {
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const u0 = -sp.pad - sp.wid / 2;
+    const v0 = -sp.len - sp.pad;
+    const xs = [];
+    const ys = [];
+    for (const u of [u0, u0 + sp.canvas.width]) {
+      for (const v of [v0, v0 + sp.canvas.height]) {
+        xs.push(x0 + u * c - v * s);
+        ys.push(y0 + u * s + v * c);
+      }
+    }
+    const bx = Math.floor(Math.min(...xs));
+    const by = Math.floor(Math.min(...ys));
+    const out = env.makeCanvas(Math.ceil(Math.max(...xs)) - bx, Math.ceil(Math.max(...ys)) - by);
+    const g = out.getContext('2d');
+    g.setTransform(c, s, -s, c, x0 - bx, y0 - by);
+    g.drawImage(sp.canvas, u0, v0);
+    return { canvas: out, x: bx, y: by };
   }
 
   // ── LED 도트 판 ─────────────────────────────────────────
@@ -885,14 +1016,12 @@
       bg.lineTo(x1, y1);
       bg.stroke();
     }
-    g.filter = 'blur(14px)';
+    const box = boxAround(BANDS.flatMap((b) => [b.slice(0, 2), b.slice(2, 4)]), 24 + 44);
     g.globalAlpha = 0.8;
-    g.drawImage(bands, 0, 0);
-    g.filter = 'blur(4px)';
+    boxFilter(env, g, box, 'blur(14px)', (cg) => cg.drawImage(bands, 0, 0));
     g.globalAlpha = 0.9;
-    g.drawImage(bands, 0, 0);
+    boxFilter(env, g, box, 'blur(4px)', (cg) => cg.drawImage(bands, 0, 0));
     g.globalAlpha = 1;
-    g.filter = 'none';
     return far;
   }
 
@@ -918,14 +1047,14 @@
       const tg = truss.getContext('2d');
       tg.translate(-x0, -y0);
       drawTruss(tg, tr, trng);
-      g.filter = `blur(${tr.blur}px)`;
-      g.drawImage(truss, x0, y0);
+      const m = Math.ceil(tr.blur * 3) + 2;
+      const box = [x0 - m, y0 - m, truss.width + m * 2, truss.height + m * 2];
+      boxFilter(env, g, box, `blur(${tr.blur}px)`, (cg) => cg.drawImage(truss, x0, y0));
       // 넓은 번짐은 1/4 크기에서 흐려 늘린다
       const q = env.makeCanvas(Math.ceil(truss.width / 4), Math.ceil(truss.height / 4));
       const qg = q.getContext('2d');
       qg.filter = `blur(${(tr.blur * 3 + 4) / 4}px)`;
       qg.drawImage(truss, 0, 0, q.width, q.height);
-      g.filter = 'none';
       g.globalCompositeOperation = 'screen';
       g.globalAlpha = TRUSS_GLOW;
       g.drawImage(q, x0, y0, q.width * 4, q.height * 4);
@@ -947,9 +1076,14 @@
     for (const [x, y, rx, ry, rot] of GLOWS) {
       softEllipse(gl, x, y, rx + 4, ry + 4, rot, '#f01450', 0.85, 0.45);
     }
-    g.filter = 'blur(4px)';
-    g.drawImage(glow, 0, 0);
-    g.filter = 'none';
+    // 왼쪽 아래·오른쪽 아래 두 무리만 흐린다
+    for (const side of [(x) => x < W / 2, (x) => x >= W / 2]) {
+      const pts = GLOWS.filter((e) => side(e[0])).flatMap(([x, y, rx, ry]) => {
+        const r = Math.max(rx, ry) + 4;
+        return [[x - r, y - r], [x + r, y + r]];
+      });
+      boxFilter(env, g, boxAround(pts, 14), 'blur(4px)', (cg) => cg.drawImage(glow, 0, 0));
+    }
 
     // 관객 실루엣: 먼 줄 → 가까운 줄. 흐림은 관객이 있는 두 상자(왼쪽 아래·오른쪽 아래)에만 건다
     const crowd = env.makeCanvas(W, H);
@@ -966,12 +1100,15 @@
     CROWD_LOOK.forEach((look, depth) => {
       cg.clearRect(0, 0, W, H);
       drawCrowd(cg, depth);
-      g.filter = `blur(${look.blur}px)`;
       g.globalAlpha = look.a;
-      for (const [x, y, w, h] of boxes) g.drawImage(crowd, x, y, w, h, x, y, w, h);
+      const m = Math.ceil(look.blur * 3) + 2;
+      for (const [x, y, w, h] of boxes) {
+        boxFilter(env, g, [x - m, y - m, w + m * 2, h + m * 2], `blur(${look.blur}px)`, (fc) =>
+          fc.drawImage(crowd, x, y, w, h, x, y, w, h)
+        );
+      }
     });
     g.globalAlpha = 1;
-    g.filter = 'none';
 
     // 연무
     const haze = noiseCanvas(env, 96, 96, 0.06, 0.06, 'haze', -0.3, 0.5);
@@ -1001,26 +1138,35 @@
     // 사각 조명기구 (살짝 흐린 빛나는 직사각형)
     g.globalCompositeOperation = 'lighter';
     for (const f of FIXTURES) {
+      const at = (cg) => {
+        cg.translate(f.x, f.y);
+        cg.rotate(f.ang * DEG);
+      };
+      const r = Math.hypot(f.w, f.h) / 2 + 14;
+      const box = [f.x - r, f.y - r, r * 2, r * 2];
       g.save();
-      g.translate(f.x, f.y);
-      g.rotate(f.ang * DEG);
+      at(g);
       glowDot(g, 0, 0, Math.max(f.w, f.h) * 1.3, f.glow, 0.3);
-      g.filter = 'blur(2px)';
-      g.fillStyle = f.color;
+      g.restore();
       // 흰 심(core)이 있는 덩어리는 제 색을 덮어 칠하고 가운데만 하얗게 빛난다
       if (f.core) g.globalCompositeOperation = 'source-over';
-      g.beginPath();
-      g.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, 6);
-      g.fill();
+      boxFilter(env, g, box, 'blur(2px)', (cg) => {
+        at(cg);
+        cg.fillStyle = f.color;
+        cg.beginPath();
+        cg.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, 6);
+        cg.fill();
+      });
       if (f.core) {
-        g.filter = 'blur(4px)';
-        g.fillStyle = f.core;
-        g.beginPath();
-        g.ellipse(0, 2, f.w * 0.28, f.h * 0.3, 0, 0, Math.PI * 2);
-        g.fill();
+        boxFilter(env, g, box, 'blur(4px)', (cg) => {
+          at(cg);
+          cg.fillStyle = f.core;
+          cg.beginPath();
+          cg.ellipse(0, 2, f.w * 0.28, f.h * 0.3, 0, 0, Math.PI * 2);
+          cg.fill();
+        });
         g.globalCompositeOperation = 'lighter';
       }
-      g.restore();
     }
     g.globalCompositeOperation = 'source-over';
 
@@ -1109,19 +1255,18 @@
     }
     for (const z of BACKGLOW) softEllipse(g, z[0], z[1], z[2], z[3], z[4], z[5], z[6], 0.25);
     // 파란 틈: 넓고 흐린 가장자리 색 위에 좁고 밝은 심
-    g.lineCap = 'round';
     for (const gap of HAIR_GAPS) {
       const path = polyPath(gap.pts);
-      g.filter = 'blur(8px)';
-      g.strokeStyle = gap.edge;
-      g.lineWidth = gap.w * 1.5;
-      g.stroke(path);
-      g.filter = 'blur(4px)';
-      g.strokeStyle = gap.core;
-      g.lineWidth = gap.w * 0.6;
-      g.stroke(path);
+      const box = boxAround(gap.pts, gap.w * 0.75 + 26);
+      const stroke = (color, width) => (cg) => {
+        cg.lineCap = 'round';
+        cg.strokeStyle = color;
+        cg.lineWidth = width;
+        cg.stroke(path);
+      };
+      boxFilter(env, g, box, 'blur(8px)', stroke(gap.edge, gap.w * 1.5));
+      boxFilter(env, g, box, 'blur(4px)', stroke(gap.core, gap.w * 0.6));
     }
-    g.filter = 'none';
     return out;
   }
 
@@ -1168,31 +1313,46 @@
     for (const pn of PANELS) drawPanel(env, rg, pn);
     const out = env.makeCanvas(W, H);
     const g = out.getContext('2d');
-    g.filter = 'blur(2.2px)';
-    g.drawImage(raw, 0, 0);
-    g.filter = 'blur(14px)';
+    // 판이 있는 왼쪽·오른쪽 상자에서만 흐린다
+    const boxes = [(x) => x < W / 2, (x) => x >= W / 2].map((side) => {
+      const sideOf = (pn) => side(pn.quad ? pn.quad[0][0] : pn.cx);
+      return boxAround(PANELS.filter(sideOf).flatMap((pn) => panelFrame(pn).corners), 44);
+    });
+    for (const box of boxes) boxFilter(env, g, box, 'blur(2.2px)', (cg) => cg.drawImage(raw, 0, 0));
     g.globalCompositeOperation = 'screen';
     g.globalAlpha = 0.25;
-    g.drawImage(raw, 0, 0);
+    for (const box of boxes) boxFilter(env, g, box, 'blur(14px)', (cg) => cg.drawImage(raw, 0, 0));
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
-    g.filter = 'none';
     return out;
   }
 
   P.stage = {
     async prepare(env) {
       const rng = env.rng('stage');
+      const part = env.params.get('stage');
       const state = {};
-      state.far = buildFar(env);
-      state.near = buildNear(env);
+      const far = buildFar(env);
+      const near = buildNear(env);
       state.sparkle = [buildSparkle(env, 0), buildSparkle(env, 1)];
-      state.beams = BEAMS.map((b) => ({ b, s: makeBeam(env, b), ph: rng() * 6.28 }));
+      const beams = BEAMS.map((b) => ({ b, s: makeBeam(env, b) }));
+      BEAMS.forEach(() => rng()); // 예전 빔 흔들림 위상 자리: 뒤의 난수열(색종이 자리 등)을 그대로 두려고 뽑는다
+      // far → 빔 → near를 한 장으로 굽는다 (far가 화면을 다 덮어 불투명 캔버스로 둔다: 얹기가 복사가 된다)
+      const back = env.makeCanvas(env.W, env.H);
+      const bg = back.getContext('2d', { alpha: false });
+      bg.drawImage(far, 0, 0);
+      for (const o of beams) drawBeam(bg, o);
+      bg.drawImage(near, 0, 0);
+      state.back = back;
+      state.pulses = Object.keys(BEAM_PULSE).map((id) =>
+        makePulse(env, beams.filter((o) => o.b.pulse === +id), near, BEAM_PULSE[id])
+      );
+      if (part === 'far' || part === 'beams') state.debug = { part, far, beams };
       state.lights = LIGHTS.map((L) => ({ L, s: makeLight(env, L), w: 0.6 + rng() * 1.6 }));
       state.shards = CONFETTI.map((s) => ({
         sp: makeShard(env, s),
         w: 0.4 + rng() * 0.8,
-        vy: 12 + rng() * 18,
+        bob: 8 + rng() * 8, // 제자리에서 오르내리는 폭(px)
       }));
       // 작은 색종이: 시드로 흩뿌린다 (인물 바깥 위주)
       const small = [];
@@ -1221,51 +1381,47 @@
       state.small = small;
       state.sticks = STICKS.map(([x0, y0, x1, y1, w, p]) => {
         const len = Math.hypot(x1 - x0, y1 - y0);
-        return {
-          x0,
-          y0,
-          ang: Math.atan2(x1 - x0, -(y1 - y0)),
-          sp: makeStick(env, len, w, p),
-          w: 0.8 + rng() * 1.2,
-          amp: 2 + rng() * 4,
-        };
+        const sp = standStick(env, x0, y0, Math.atan2(x1 - x0, -(y1 - y0)), makeStick(env, len, w, p));
+        // 흔드는 폭(px): 2~6°만큼 기울였을 때 봉 가운데가 움직이는 거리
+        return { sp, w: 0.8 + rng() * 1.2, reach: (2 + rng() * 4) * DEG * len * 0.5 };
       });
       // 정적인 장들과 스프라이트를 모두 굳힌다 (그림은 같고 프레임 비용만 준다)
       const sprites = [
-        ...state.beams.map((o) => o.s),
+        ...state.pulses,
         ...state.lights.map((o) => o.s),
         ...state.shards.map((o) => o.sp),
         ...state.small.map((o) => o.sp),
         ...state.sticks.map((o) => o.sp),
         ...state.sparkle.flat(),
       ];
-      [state.far, state.near] = await Promise.all([freeze(state.far), freeze(state.near)]);
+      state.back = await freeze(state.back);
       const frozen = await Promise.all(sprites.map((sp) => freeze(sp.canvas)));
       sprites.forEach((sp, i) => (sp.canvas = frozen[i]));
       return state;
     },
 
     drawBack(ctx, state, t, env) {
-      const part = env.params.get('stage');
-      if (part === 'beams') {
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, env.W, env.H);
-      } else ctx.drawImage(state.far, 0, 0);
-      if (part === 'far') return;
-
-      // 빔: 광원 둘레로 몇 도씩 흔들린다
-      for (const { b, s, ph } of state.beams) {
-        const sw = b.sweep * Math.sin(t * 0.45 + ph) - b.sweep * Math.sin(ph);
-        ctx.save();
-        ctx.globalCompositeOperation = b.op;
-        ctx.translate(b.x, b.y);
-        ctx.rotate((b.ang + sw) * DEG);
-        ctx.drawImage(s.canvas, -s.pad, -s.cy);
-        ctx.restore();
+      if (state.debug) {
+        const { part, far, beams } = state.debug;
+        if (part === 'far') ctx.drawImage(far, 0, 0);
+        else {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, env.W, env.H);
+          for (const o of beams) drawBeam(ctx, o);
+        }
+        return;
       }
-      if (part === 'beams') return;
+      ctx.drawImage(state.back, 0, 0);
 
-      ctx.drawImage(state.near, 0, 0);
+      // 빔의 숨: 무리마다 다른 빠르기로 밝아졌다 돌아온다 (t=0에서 0)
+      ctx.globalCompositeOperation = 'screen';
+      for (const p of state.pulses) {
+        const k = p.amp * (0.5 - 0.5 * Math.cos(t * p.w));
+        if (k < 0.004) continue;
+        ctx.globalAlpha = k;
+        for (const [x, y, w, h] of p.strips) ctx.drawImage(p.canvas, x, y, w, h, p.x + x, p.y + y, w, h);
+      }
+      ctx.globalAlpha = 1;
 
       // LED 판 반짝임: 두 무늬가 엇갈려 켜졌다 꺼진다 (t=0에서는 꺼져 있다)
       if (t > 0) {
@@ -1287,10 +1443,13 @@
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
 
-      // 색종이: 떨어지며 돌고, 화면 아래로 나가면 위에서 다시 나온다
+      // 색종이: 작은 것은 떨어지며 돌고 화면 아래로 나가면 위에서 다시 나온다. 큰 조각은 원본 구도를 지키도록
+      // 제자리에서 오르내리며 나풀거린다 (fx의 번짐은 t=0 자리에 구워져 있어 멀리 가면 번짐만 남는다).
       const span = env.H + 120;
-      const drawShard = (o, alpha) => {
-        const y = ((((o.sp.cy + o.vy * t + 60) % span) + span) % span) - 60;
+      const drawShard = (o, alpha, fall) => {
+        const y = fall
+          ? ((((o.sp.cy + o.vy * t + 60) % span) + span) % span) - 60
+          : o.sp.cy + o.bob * Math.sin(t * o.w * 0.5);
         const x = o.sp.cx + 10 * Math.sin(t * o.w * 0.7);
         const rot = 0.5 * Math.sin(t * o.w);
         const flip = Math.cos(t * o.w * 1.7);
@@ -1300,20 +1459,19 @@
         ctx.setTransform(c, s, -s * flip, c * flip, x, y);
         ctx.drawImage(o.sp.canvas, o.sp.ox, o.sp.oy);
       };
-      for (const o of state.small) drawShard(o, o.a);
-      for (const o of state.shards) drawShard(o, 1);
+      for (const o of state.small) drawShard(o, o.a, true);
+      for (const o of state.shards) drawShard(o, 1, false);
       ctx.globalAlpha = 1;
 
-      // 응원봉: 손 쪽 끝을 축으로 좌우로 흔든다
+      // 응원봉: 좌우로 흔들며 흔들 때마다 살짝 들린다. 정수 칸으로만 옮겨 회전 그리기 없이 얹는다.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'screen';
       for (const st of state.sticks) {
-        const a = st.ang + st.amp * DEG * Math.sin(t * st.w * 2.4);
-        const c = Math.cos(a);
-        const s = Math.sin(a);
-        ctx.setTransform(c, s, -s, c, st.x0, st.y0);
-        ctx.drawImage(st.sp.canvas, -st.sp.pad - st.sp.wid / 2, -st.sp.len - st.sp.pad);
+        const ph = t * st.w * 2.4;
+        const dx = Math.round(st.reach * Math.sin(ph));
+        const dy = Math.round(st.reach * 0.25 * (Math.cos(2 * ph) - 1));
+        ctx.drawImage(st.sp.canvas, st.sp.x + dx, st.sp.y + dy);
       }
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'source-over';
     },
 

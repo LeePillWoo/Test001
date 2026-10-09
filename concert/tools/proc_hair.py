@@ -23,7 +23,9 @@
     fly       실루엣 밖 배경을 가로지르는 잔머리 곡선 (꺾인 곳에서 잘라 매끈하게)
     cross     목·가슴 피부 위를 가로지르는 가는 머리카락 곡선, crossW = 곡선마다 반폭(px)
     ink       머리 안의 먹선 곡선 (다발 사이 어두운 가는 선), inkW = 곡선마다 반폭(px)
+    glint     머리 안의 밝은 가는 결 곡선 (빛을 받아 도드라진 올, 먹선의 짝), glintW = 곡선마다 반폭(px)
     gap       다발 사이 틈을 건너는 가는 가닥 흐름선
+    flow      결 방향장 (4px 칸마다 두 배 각 한 바이트, base64): 그리는 쪽에서 구멍 그물·잔머리 다발의 방향에 쓴다
 
 방법
     1. 결 방향: 휘도의 Sobel 기울기로 구조 텐서를 만들고 머리 마스크 안에서 평활(σ 6), 일관도²로 가중해
@@ -34,13 +36,17 @@
     4. 잔머리: 머리 둘레 띠 안의 배경에서 가는 능선(채널별 헤시안)을 골라 뼈대를 따라간다.
        목·가슴 위 가닥도 같은 방법(어두운 능선)에 앞 영역의 가는 조각 뼈대를 더한다.
     5. 셀 면: L*을 결 방향으로만 흐린 뒤(앞뒤 14px와 5px) 문턱으로 '빛 받는 다발'·'가장 밝은 결'·'윤기 결'·
-       '중간톤 몸통' 덩어리를, 색상각으로 '차가운 반사' 덩어리를 고른다. 넓은 덩어리는 윤곽 고리로, 가는 것은
-       뼈대의 가장 긴 경로(+ 거리 변환 반폭)로 낸다. 밝기·색 값은 내보내지 않는다 — 덩어리의 모양만.
+       '중간톤 몸통' 덩어리를, 색상각으로 '차가운 반사' 덩어리를 고른다. 덩어리 모양은 결 따라 길게·결을
+       가로질러 짧게 흐린 뒤 반으로 잘라 다듬는다(물결진 가장자리와 부스러기를 없앤다). 넓은 덩어리는 윤곽
+       고리로, 가는 것은 뼈대의 가장 긴 경로(+ 거리 변환 반폭)로 낸다. 밝기·색 값은 내보내지 않는다 — 모양만.
     6. 실루엣: 작은(400px² 미만)·가는 푸른 구멍은 머리로 되돌리고, 6px 틈을 닫고, 300px² 미만 구멍을 메우고,
        정수리 윤곽을 σ2로 다듬고, 고리 잔머리 자리는 뺀다. 고리는 Chaikin으로 계단을 편다.
+    7. 선: 먹선(어두운 능선)과 밝은 가는 결(밝은 능선)을 헤시안으로 찾아 뼈대를 이은 곡선과 반폭으로 낸다.
+    8. 결 방향장: 4px 칸마다 두 배 각 한 바이트 (그리는 쪽이 구멍 그물·잔머리 다발의 방향을 정한다).
 같은 입력이면 언제나 같은 결과가 나온다(난수 시드 고정).
 """
 import argparse
+import base64
 import json
 import math
 import os
@@ -65,6 +71,9 @@ PART = [(935.0, 55.0), (940.0, 90.0), (945.0, 120.0)]
 LOOP_CUT = [(910, 0), (1004, 0), (1004, 44), (960, 48), (910, 40)]
 MID_T = 18  # 중간톤 다발 몸통의 문턱 (결 방향으로 짧게 흐린 L*)
 LIT_HI = 60  # 빛 면 안에서 본색(가장 밝은 결)으로 칠할 문턱 (결 방향으로 짧게 흐린 L*)
+# 셀 면 모양 다듬기 (flow_shape): 결 따라 앞뒤 px, 결을 가로질러 앞뒤 px
+SHAPE = (6, 1)
+GLINT_T = 0.02  # 밝은 가는 결의 능선 문턱 (헤시안 고유값)
 ANALYSIS_JS = os.path.join(HERE, '..', 'js', 'procedural', 'data', 'analysis.js')
 # 머리가 피부 위로 그물처럼 걸친 곳 (손으로 잰 아래 가운데 팔뚝): 덩어리로 칠하지 않고 가는 가닥으로만 그린다
 FOREARM = [(588, 1254), (640, 1130), (700, 1018), (745, 972), (905, 955), (905, 995), (840, 1052),
@@ -127,6 +136,20 @@ class Field:
         if dx * px + dy * py < 0:
             dx, dy = -dx, -dy
         return dx, dy
+
+
+def flow_grid(c2, s2, hair, cell=4):
+    """결 방향장을 cell px 칸마다 한 바이트(두 배 각 0..255)로: 그리는 쪽이 구멍 그물·잔머리 다발의 방향을 정한다.
+    머리 밖은 가장 가까운 머리 화소의 결을 이어 쓴다 (실루엣 너머로 뻗는 가닥 끝도 결을 따르게)."""
+    valid = cv2.dilate(hair.astype(np.uint8), disk(3)).astype(bool)
+    _, (iy, ix) = ndi.distance_transform_edt(~valid, return_indices=True)
+    c, s = c2[iy, ix], s2[iy, ix]
+    h, w = hair.shape
+    ys = np.arange(cell // 2, h, cell)
+    xs = np.arange(cell // 2, w, cell)
+    a = np.arctan2(s[np.ix_(ys, xs)], c[np.ix_(ys, xs)])
+    b = (np.round((a + np.pi) / (2 * np.pi) * 256) % 256).astype(np.uint8)
+    return {'cell': cell, 'w': len(xs), 'h': len(ys), 'data': base64.b64encode(b.tobytes()).decode('ascii')}
 
 
 # ── 2. 균등 간격 흐름선 (Jobard–Lefer) ──────────────────────
@@ -407,6 +430,25 @@ def ink_lines(img, hair):
     return paths, widths
 
 
+def glint_lines(img, hair, thr=GLINT_T):
+    """머리 안의 밝은 가는 결(빛을 받아 도드라진 머리카락 올): 밝은 능선(헤시안의 큰 음의 고유값) 뼈대를
+    이어 붙인 곡선. 먹선의 짝이다 — 선의 자리와 폭만 내보내고 밝기·색은 그리는 쪽 팔레트가 정한다."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    H = hessian_matrix(gray, sigma=1.2, order='rc', use_gaussian_derivatives=False)
+    _, l2 = hessian_matrix_eigvals(H)
+    m = np.where(hair, np.maximum(-l2, 0), 0) > thr
+    paths = link_paths(trace_skeleton(skeletonize(m), min_len=6), gap=8, max_turn=0.5)
+    paths = [p for p in paths if path_len(p) >= 14]
+    local = cv2.GaussianBlur(gray, (0, 0), 4.0)
+    bright = (gray > local + 0.04) & hair
+    dt = cv2.distanceTransform(bright.astype(np.uint8), cv2.DIST_L2, 3)
+    widths = []
+    for p in paths:
+        d = np.array([dt[y, x] for x, y in p])
+        widths.append(float(np.clip(np.percentile(d, 60), 0.5, 3.0)))
+    return paths, widths
+
+
 def flow_blur(img, c2, s2, half=5):
     """결 방향으로만 흐린다 (삼각 가중, 앞뒤 half px): 결을 따라 끊긴 밝은 조각이 한 가닥으로 이어진다."""
     ang = 0.5 * np.arctan2(s2, c2)
@@ -539,6 +581,14 @@ def split_planes(M, dt_min=3.0, area_min=250):
     return plane[lab] & M, ~plane[lab] & M
 
 
+def flow_shape(M, c2, s2, along, across):
+    """덩어리 모양을 결 방향으로 다듬는다: 결을 따라 앞뒤 along px, 결을 가로질러 across px 흐린 뒤 반으로 자른다.
+    결을 따라 물결진 가장자리(문턱이 가는 올 하나하나를 따라 오르내린 자국)가 곧게 펴지고, 결을 따라 짧은
+    부스러기는 사라진다. 모양만 다듬을 뿐 새 밝기 단계를 만들지 않는다."""
+    m = M.astype(np.float32)
+    return flow_blur(flow_blur(m, c2, s2, half=along), -c2, -s2, half=across) > 0.5
+
+
 def lit_ridges(img, hair, c2, s2):
     """셀 면의 모양: 머리 안의 '빛 받는 다발'(하이라이트 면)과 '윤기 결'(그늘 안의 조금 밝은 결).
     밝기 값은 내보내지 않는다 — 어느 면에 속하는지(모양)만 재고, 색은 그리는 쪽 팔레트와 조명 구역이 정한다.
@@ -559,16 +609,22 @@ def lit_ridges(img, hair, c2, s2):
     # 빛 면 안의 가장 밝은 결 (본색 단계): 짧게 흐린 L* > LIT_HI
     hi = lit & (Ls > LIT_HI)
     hi = cv2.morphologyEx(hi.astype(np.uint8), cv2.MORPH_OPEN, k).astype(bool)
+    # 모양 다듬기: 결 따라 길게 이어진 가닥 모양으로 (경계의 물결·부스러기를 없애고 끝을 뾰족하게)
+    lit = flow_shape(lit, c2, s2, *SHAPE) & hair
+    hi = flow_shape(hi, c2, s2, *SHAPE) & lit
     sheen = hair & (Lb > 22) & (Lb - loc > 7) & ~cv2.dilate(lit.astype(np.uint8), k).astype(bool)
     sheen = cv2.morphologyEx(sheen.astype(np.uint8), cv2.MORPH_OPEN, k).astype(bool)
+    sheen = flow_shape(sheen, c2, s2, *SHAPE) & hair & ~lit
     # 중간톤 다발 몸통 (셀 그늘의 밝은 쪽 면): 짧게 흐린 L* > MID_T. 빛 면 밑에 깔린다
     mid = hair & (Ls > MID_T)
     mid = cv2.morphologyEx(mid.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    mid = flow_shape(mid, c2, s2, *SHAPE) & hair
     # 차가운 반사 (무대의 파랑·보랏빛이 그늘 결에 비친 곳): 색상각이 보랏빛·파랑 쪽인 덩어리의 모양만
     Lab = rgb2lab(img[:, :, ::-1].astype(np.float64) / 255.0)
     hue = np.degrees(np.arctan2(Lab[..., 2], Lab[..., 1]))
     cool = hair & (L >= 12) & (hue < -30) & (np.hypot(Lab[..., 1], Lab[..., 2]) > 12) & ~lit
     cool = cv2.morphologyEx(cool.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    cool = flow_shape(cool, c2, s2, *SHAPE) & hair & ~lit
     lp, lt = split_planes(lit)
     sp, st = split_planes(sheen, dt_min=2.5, area_min=180)
     dt = cv2.distanceTransform(lp.astype(np.uint8), cv2.DIST_L2, 5)
@@ -919,6 +975,8 @@ def main():
     (lit, lit_w), (sheen, sheen_w) = shapes['lit'], shapes['sheen']
     ink, ink_w = ink_lines(img, hair)
     ink = [orient_root(p) for p in ink]
+    glint, glint_w = glint_lines(img, hair)
+    glint = [orient_root(p) for p in glint]
     cross, cross_w = cross_strands(img, hair, skin, face, dress, thin)
     cross = [orient_root(c) for c in cross]
 
@@ -948,19 +1006,23 @@ def main():
         'sheen': sheen,
         'sheenW': sheen_w,
         'ink': [resample(smooth_path(c), 5.0) for c in ink],
+        'glint': [resample(smooth_path(c), 4.0) for c in glint],
+        'glintW': [round(w, 1) for w in glint_w],
+        'flow': flow_grid(c2, s2, hair),
         'inkW': [round(w, 1) for w in ink_w],
         'cross': [resample(smooth_path(c), 4.0) for c in cross],
         'crossW': [round(w, 1) for w in cross_w],
     }
     js = ('// tools/proc_hair.py가 만든다. 직접 고치지 않는다.\n'
           '// 머리카락의 기하만 담는다(색 없음): 실루엣·구멍·앞·뒤·비침·바깥 배경(고리), 다발·가닥 흐름선,\n'
-          '// 먹선·틈 가닥·잔머리·목 위 가닥 곡선(뿌리→끝), 빛 다발·윤기 결의 뼈대와 반폭. 좌표는 원본 픽셀.\n'
+          '// 먹선·밝은 결·틈 가닥·잔머리·목 위 가닥 곡선(뿌리→끝), 빛 다발·윤기 결의 뼈대와 반폭, 결 방향장.\n'
+          '// 좌표는 원본 픽셀.\n'
           '(window.ConcertProc = window.ConcertProc || {}).hairData = '
           + json.dumps(data, separators=(',', ':')) + ';\n')
     with open(OUT_JS, 'w') as f:
         f.write(js)
     print('locks', len(locks), 'strands', len(strands), 'fly', len(fly), 'cross', len(cross),
-          'ink', len(ink), 'gap', len(gaps), 'lit', len(lit), 'sheen', len(sheen),
+          'ink', len(ink), 'glint', len(glint), 'gap', len(gaps), 'lit', len(lit), 'sheen', len(sheen),
           'litPlane', len(shapes['litPlane']), 'litCore', len(shapes['litCore']),
           'bytes', len(js), 'back rings', len(data['back']), 'front rings', len(data['front']))
 

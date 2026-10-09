@@ -1,21 +1,25 @@
 // 절차적 드로잉 레이어: hair — 머리카락 전부.
 // 기하는 tools/proc_hair.py가 원본에서 잰 data/hair.js를 쓴다: 실루엣·구멍·앞/뒤 영역, 결을 따라 그은
-// 다발·가닥 흐름선(가르마에서 양쪽으로), 먹선, 잔머리, 그리고 셀 면의 모양 — '빛 받는 다발' 면과 그 안의
-// 가장 밝은 결, 중간톤 다발 몸통, 윤기 결, 차가운 반사 결의 윤곽. 색은 원본 화소를 읽지 않는다: 팔레트 램프
-// + 손으로 잰 조명 구역 + 역광 규칙(바깥 배경 쪽 가장자리일수록 밝다) + 노이즈로 정한다. 어느 면이 밝은지(모양)는
-// 재고, 얼마나 무슨 색으로 밝은지는 조명 구역이 정한다.
+// 다발·가닥 흐름선(가르마에서 양쪽으로), 먹선·밝은 결(어둡고 밝은 가는 능선의 자리), 잔머리, 결 방향장, 그리고
+// 셀 면의 모양 — '빛 받는 다발' 면과 그 안의 가장 밝은 결, 중간톤 다발 몸통, 윤기 결, 차가운 반사 결의 윤곽
+// (결 따라 다듬어 물결진 가장자리를 편 것). 색은 원본 화소를 읽지 않는다: 팔레트 램프 + 손으로 잰 조명 구역
+// + 역광 규칙(바깥 배경 쪽 가장자리일수록 밝다) + 노이즈로 정한다. 어느 면이 밝은지(모양)는 재고, 얼마나 무슨
+// 색으로 밝은지는 조명 구역이 정한다.
 //
 // 칠하는 순서 (셀 셰이딩 일러스트처럼)
-//   가장 어두운 바탕 → 다발 리본(빛 면 가까이는 중간톤) → 가는 결 → 중간톤 다발 면 → 차가운 반사 결
-//   → 윤기 면·결 → 빛 면(어깨색, 가장 밝은 결은 본색) → 빛 다발의 올·빛 면 위 어두운 올 → 복숭아빛 심
-//   → 먹선 → 왼쪽 아래 다발 끝 흐리기 → 구멍 비우기
-// 정적인 부분은 prepare에서 뒤(drawBack)·앞(drawFront) 두 장으로 굽는다. 앞 장에는 피부 위로 걸친 머리
-// (목 둘레 베일, 목 왼쪽 다발 끝, 얼굴 둘레 가닥 끝, 이마 가닥), 구멍 가장자리의 빛 테, 구멍을 건너는 활 모양
-// 가는 가닥을 더 굽는다. 매 프레임 그리는 것: 흩날리는 가닥 끝과 긴 잔머리·정수리 고리·목 위 가닥
-// (끝으로 갈수록 흔들림), 일렁이는 테두리빛. t=0이 원본 자세다.
+//   면: 가장 어두운 바탕 → 다발 리본 → 가는 결 → 중간톤 다발 면 → 차가운 반사 결 → 윤기 면·결
+//       → 빛 면(어깨색, 가장 밝은 결은 본색) → 왼쪽 아래 다발 끝 흐리기 → 구멍 비우기
+//   선 (따로 한 장에 그려 면이 남은 곳에만 얹는다): 면 경계의 가닥 끝(면의 끝이 머리카락 끝으로 풀린다)
+//       → 결 무늬(반투명한 밝은·어두운 올) → 밝은 가는 결 → 빛 다발의 올 → 복숭아빛 심 → 먹선
+// 정적인 부분은 prepare에서 뒤(drawBack)·앞(drawFront) 두 장으로 굽는다. 뒤 장에는 실루엣 밖으로 뻗어 말리는
+// 잔머리 다발을 더 굽고, 앞 장에는 피부 위로 걸친 머리(목 둘레 베일, 목 왼쪽 다발 끝, 얼굴 둘레 가닥 끝,
+// 이마 가닥), 구멍 가장자리의 먹선·빛 테, 오른쪽 아래 구멍을 건너는 그물 가닥, 틈을 건너는 활 모양 가닥을
+// 더 굽는다. 매 프레임 그리는 것: 흩날리는 가닥 끝과 긴 잔머리·정수리 고리·목 위 가닥(끝으로 갈수록
+// 흔들림), 일렁이는 테두리빛. t=0이 원본 자세다.
 //
-// 디버그 주소 옵션: hairmap=0..6|lit0|lit1|sheen|hl|fly|mid|cool|gap|rim|fill|pink… (색 지도나 조명 값을 실루엣에 칠해 봄),
-//   hairoff=mid,cool,sheen,veil,ink,lockink,fibre,darkon,strand,core,soft,rim (그 단계를 끔),
+// 디버그 주소 옵션: hairmap=0..6|lit0|lit1|sheen|hl|fly|mid|cool|gap|rim|fill|pink… (색 지도나 조명 값을 칠해 봄),
+//   hairoff=mid,cool,sheen,strand,soft,fringe,texture,glint,fibre,darkon,core,ink,lockink,veil,rim,holeink,
+//           net,taper,wisp (그 단계를 끔),
 //   hairext=0 (몸 밑으로 이어 그리지 않음),
 //   hairtime=1 (준비 단계별 시간을 콘솔 경고로)
 (function () {
@@ -25,6 +29,9 @@
   const CELL = 4; // 조명 격자 한 칸(px)
   const LEVELS = 7; // 밝기 단계 지도 개수
   const STRAND_P = 0.3; // 가는 결을 그릴 확률 (낮을수록 다발의 평평한 셀 면이 드러난다)
+  const SHADE_FILL = 0.18; // 앞 조명이 그늘(다발 몸통)을 들어 올리는 정도
+  // 다발 몸통의 그늘 단계: 보통 [최소, 더할 수 있는 값], 빛 면 가까이 [최소, 더할 수 있는 값]
+  const LOCK_V = [0, 0.15, 0.3, 0.2];
   const LOCK_W = [4.5, 5.5]; // 다발 리본 반폭(px): 최소, 더할 수 있는 폭
   const INK_W = 0.7; // 원본에서 잰 먹선 반폭에 곱하는 값
   const INK_MIN_PTS = 4; // 이보다 짧은(점 수, 5px 간격) 먹선은 긁힌 자국처럼 보여 버린다
@@ -33,9 +40,19 @@
   const RIM_W = [2, 2]; // 구멍 가장자리 빛 테의 폭(px): 최소, 더할 수 있는 폭
   const GAP_P = 0.6; // 틈을 건너는 가닥을 그릴 확률
   const GAP_DARK = 0.2; // 틈 가닥 중 어두운 것의 비율
-  const FIBRE_P = 0.15; // 빛 다발 곁의 가는 결을 같은 빛으로 그릴 확률
+  const FIBRE_P = 0.06; // 빛 다발 곁의 가는 결을 같은 빛으로 그릴 확률
   const CORE_P = 0.75; // 넓은 빛 다발 가운데에 복숭아빛 심을 넣을 확률
   const EDGE_BAND = 1; // 바깥 가장자리에서 바탕을 비우는 띠(px): 가닥 끝만 남는다
+  const HOLE_TAPER = [4, 0.4]; // 구멍 양 끝을 뾰족하게: 폭 ∝ (1 - |s|^a)^b, s = 결 따라 잰 끝까지의 비
+  // 구멍 그물 (holeNet): 이 상자 안 구멍만 (오른쪽 아래, 다발 사이로 분홍 조명이 비치는 곳)
+  const NET_BOX = [790, 760, 1254, 1254];
+  const NET_PHI = [0.3, 0.25]; // 결에서 기운 각(rad): 최소, 더할 수 있는 값
+  const NET_SP = [6, 4]; // 가닥 간격(px)
+  const NET_EXT = [4, 10]; // 구멍 밖 다발 위로 더 나가는 길이(px)
+  const NET_SAG = 0.1; // 활처럼 휘는 정도 (길이에 대한 비)
+  const NET_JIT = 0.25; // 가닥마다 기울기를 흔드는 정도 (tan)
+  const NET_W = [0.5, 0.4]; // 반폭(px)
+  const NET_LIT = 0.1; // 빛 받는(분홍·산호빛) 가닥의 비율
   const HOLE_SHRINK = 0; // 구멍을 비울 때 줄이는 폭(px)
   const HOLE_BLUR = 0.8; // 구멍 가장자리를 흐리는 폭(px)
   const MID_A = 0.9; // 중간톤 다발 몸통의 불투명도
@@ -59,6 +76,34 @@
   const SOFT_EDGE = [[100, 600, 430, 980, 6]];
   const SEE_N = 4; // 비침 구역(팔뚝·허리)에서 굵은 다발 사이에 더 긋는 가는 가닥 수
   const LONG_P = 0.3; // 역광 띠의 흩날리는 끝이 긴 잔머리가 될 확률
+  // 면 경계의 가닥 끝 (renderHair 6a)
+  const FRINGE_TIP_P = 0.6; // 가는 결이 면 경계를 지날 때 가닥 끝을 그을 확률
+  const FRINGE_UP = 0.45; // 그중 밝은 쪽 면이 어두운 쪽으로 뻗는 비율 (나머지는 어두운 쪽이 밝은 면으로)
+  const FRINGE_IN = 3; // 경계 안쪽으로 겹치는 점 수 (4px 간격)
+  const FRINGE_OUT = [3, 4]; // 경계 너머로 뻗는 최대 점 수: 그늘·중간톤, 빛 면
+  const FRINGE_TIP_W = [0.7, 0.8]; // 가닥 끝 뿌리 반폭(px): 최소, 더할 수 있는 폭
+  // 결 무늬 (renderHair 6c)
+  const TEX_P = 0.35; // 가는 결 조각을 결 무늬로 그을 확률
+  const TEX_LEN = [8, 30]; // 조각 길이(점 수, 4px 간격): 최소, 최대
+  const TEX_W = [0.3, 0.3]; // 반폭(px)
+  const TEX_A_HI = [0.1, 0.16]; // 밝은 올의 불투명도: 최소, 더할 수 있는 값
+  const TEX_A_LO = [0.15, 0.2]; // 어두운 올(먹선 색)의 불투명도
+  const TEX_LIGHT = 0.65; // 밝은 올의 비율
+  const TEX_HI = '#f8c8b8'; // 밝은 올의 색 (반투명하게 얹어 면 색을 밝힌다)
+  // 잔머리 다발 (drawWisps): 상자 x0, y0, x1, y1, 실루엣 점마다 가닥을 낼 확률
+  const WISP_BOX = [
+    [60, 330, 520, 980, 0.25], // 왼쪽으로 흘러내린 머리
+    [1060, 200, 1254, 1254, 0.2], // 오른쪽 덩어리 바깥
+  ];
+  const WISP_ROOT = 12; // 머리 속에서 시작하는 길이(px)
+  const WISP_LEN = [40, 120]; // 실루엣 밖으로 뻗는 길이(px): 최소, 더할 수 있는 길이
+  const WISP_CURL = [0.02, 0.035]; // 3px마다 휘는 각(rad): 반지름 약 55~150px의 호
+  const WISP_TURN = 2.2; // 한 가닥이 휠 수 있는 최대 각(rad)
+  const WISP_DOWN = 0.75; // 아래(중력) 쪽으로 감기는 비율
+  const WISP_W = [0.5, 0.5]; // 뿌리 반폭(px)
+  // 밝은 가는 결 (renderHair 6d)
+  const GLINT_W = 0.7; // 잰 반폭에 곱하는 값
+  const GLINT_A = [0.7, 0.3]; // 불투명도: 최소, 더할 수 있는 값
   const MAX_CURL = 0.05; // 잔머리가 4px마다 휘는 최대 각(rad): 곡률 1/80px 이하
   const LOOSE_LEN = 30; // 역광 가장자리에서 흩날리는 끝을 더 늘일 수 있는 길이(px)
 
@@ -73,7 +118,7 @@
       [0.6, '#a25e5a'],
       [0.72, '#ee7c7e'],
       [0.86, '#f99c92'],
-      [1, '#fcd4c6'],
+      [1, '#fcc8b8'],
     ],
     // 오른쪽: 자홍 테두리빛
     pink: [
@@ -84,7 +129,7 @@
       [0.6, '#d23c62'],
       [0.72, '#ec5a74'],
       [0.86, '#f8a4a8'],
-      [1, '#fcd8d4'],
+      [1, '#fcc8cc'],
     ],
     // 얼굴 둘레: 윤기 도는 갈색 (자줏빛이 덜하다)
     brown: [
@@ -94,8 +139,8 @@
       [0.46, '#6a4440'],
       [0.6, '#94605a'],
       [0.72, '#e07c72'],
-      [0.86, '#f4a090'],
-      [1, '#fcd4c6'],
+      [0.86, '#ee9486'],
+      [1, '#f8c0ae'],
     ],
     // 파란 무대 빔이 비친 결
     blue: [
@@ -120,6 +165,7 @@
       [1, '#d0b0e0'],
     ],
   };
+  const RAMP_N = 256; // 램프 표의 칸 수
   const INK = '#160814';
   const HAIR_LINE = '#2a1018'; // 피부 위를 지나는 가는 가닥
   const VEIL_LINE = '#4a2830'; // 얼굴 위를 가로지르는 한 가닥 (빛을 받아 조금 옅다)
@@ -223,10 +269,12 @@
   }
 
   function mix3(a, b, t) {
+    if (t <= 0) return a;
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   }
 
   function rampAt(stops, u) {
+    if (stops.lut) return stops.lut[Math.max(0, Math.min(RAMP_N, Math.round(u * RAMP_N)))];
     if (u <= stops[0][0]) return stops[0][1];
     for (let i = 1; i < stops.length; i++) {
       if (u <= stops[i][0]) {
@@ -270,15 +318,15 @@
 
   // 그늘 단계 v(0..1)의 색: 다발 몸통. 빛 구역은 그늘을 조금만 들어 올린다 (밝은 면은 따로 칠한다)
   function shade(L, v, ramps) {
-    const u = 0.1 + 0.3 * v + 0.08 * L.rim + 0.28 * L.fill + 0.1 * L.violet - 0.1 * L.dark + 0.05 * L.n;
+    const u = 0.1 + 0.3 * v + 0.08 * L.rim + SHADE_FILL * L.fill + 0.1 * L.violet - 0.1 * L.dark + 0.05 * L.n;
     return tint(L, Math.max(0, Math.min(0.62, u)), ramps, 2);
   }
 
   // 빛 받는 다발의 색. tier 0 = 어깨(가장자리), 1 = 본색, 2 = 심, 3 = 윤기 결(그늘 안). b = 그 자리 빛의 세기
   function litShade(L, tier, ramps) {
     const b = Math.max(0.12, Math.min(1, 0.36 + 0.8 * Math.max(L.rim, L.fill) - 0.35 * L.dark + 0.06 * L.n));
-    const u = [0.42 + 0.34 * b, 0.48 + 0.46 * b, 0.74 + 0.26 * b, Math.min(0.6, 0.38 + 0.3 * b)][tier];
-    return tint(L, u, ramps, tier < 2 ? 4 : 2.5);
+    const u = [0.42 + 0.34 * b, Math.min(1, 0.56 + 0.46 * b), 0.74 + 0.26 * b, Math.min(0.6, 0.38 + 0.3 * b)];
+    return tint(L, u[tier], ramps, tier < 2 ? 4 : 2.5);
   }
 
   // 바깥 배경까지의 거리 (CELL 해상도, 체임퍼 거리)
@@ -462,7 +510,7 @@
       for (const [a, b] of pieces(flat.length / 2, rng, 18, 60)) {
         const pts = slicePts(flat, a, b);
         const m = pts[pts.length >> 1];
-        const v = nearLit(m[0], m[1], 10) ? 0.36 + rng() * 0.2 : rng() * 0.3;
+        const v = nearLit(m[0], m[1], 10) ? LOCK_V[2] + rng() * LOCK_V[3] : LOCK_V[0] + rng() * LOCK_V[1];
         out.push({ pts, v, w: LOCK_W[0] + rng() * LOCK_W[1] });
       }
     }
@@ -509,10 +557,11 @@
   const span = (w, s0, s1) => (s) => (s < s0 || s > s1 ? 0 : w * Math.sin((Math.PI * (s - s0)) / (s1 - s0)));
 
   // ── 굽기: 정적인 머리 한 장 ─────────────────────────────
-  // 칠하는 순서: 어두운 바탕 → 다발 몸통(빛 면 가까이는 중간톤) → 가는 결 → 원본에서 잰 중간톤 다발 면
-  //   → 윤기 면·결 → 빛 면(어깨색 → 가장 밝은 결은 본색) → 빛 면 위의 어두운 올 → 복숭아빛 심 → 먹선
-  //   → 구멍(부드럽게 비움)
-  function renderHair(env, D, maps, grid, clip, holes, S) {
+  // 면(c): 어두운 바탕 → 다발 몸통(빛 면 가까이는 중간톤) → 가는 결 → 원본에서 잰 중간톤 다발 면
+  //   → 차가운 반사 → 윤기 면·결 → 빛 면(어깨색 → 가장 밝은 결은 본색) → 왼쪽 아래 끝 흐리기 → 구멍(부드럽게 비움)
+  // 선(lines, 따로 한 장): 면 경계의 가닥 끝 → 결 무늬 → 밝은 가는 결 → 빛 다발의 올·빛 면 위 어두운 올
+  //   → 복숭아빛 심 → 먹선. 부르는 쪽이 면 장(뒤·앞) 위에 source-atop으로 얹는다
+  function renderHair(env, D, maps, grid, clip, holes, S, pm) {
     const { W, H } = env;
     const c = env.makeCanvas(W, H);
     const g = c.getContext('2d');
@@ -541,15 +590,12 @@
     g.restore();
 
     // 2. 다발 몸통: 조각마다 그늘 단계 하나 (빛 면 가까이는 중간톤)
-    for (const L of locks) {
-      const path = new Path2D();
-      addRibbon(path, L.pts, lockWidth(L));
-      g.globalAlpha = 0.95;
-      g.fillStyle = level(L.v);
-      g.fill(path);
-    }
+    const lb = batcher();
+    for (const L of locks) addRibbon(lb.path(level(L.v), 0.95), L.pts, lockWidth(L));
+    lb.fill(g);
 
     // 3. 가는 결: 놓인 다발의 밝기 둘레 (어두운 다발은 어둡게 남는다)
+    const sb = batcher();
     for (const flat of D.strands) {
       for (const [a, b] of pieces(flat.length / 2, rng, 16, 60)) {
         if (rng() > STRAND_P || off.has('strand')) continue;
@@ -559,14 +605,12 @@
         const li = nearest(m[0], m[1]);
         const lv = li >= 0 ? locks[li].v : 0.2;
         const v = Math.min(1, Math.max(0, lv + (rng() - 0.35) * 0.3));
-        const path = new Path2D();
-        addRibbon(path, pts, taper(0.5 + rng() * 0.9, 0.85, 0.08, 0.6), (rng() - 0.5) * 3.2);
-        g.globalAlpha = 0.85 + 0.15 * rng();
-        g.fillStyle = level(v);
-        g.fill(path);
+        const prof = taper(0.5 + rng() * 0.9, 0.85, 0.08, 0.6);
+        const o = (rng() - 0.5) * 3.2;
+        addRibbon(sb.path(level(v), 0.85 + 0.15 * rng()), pts, prof, o);
       }
     }
-    g.globalAlpha = 1;
+    sb.fill(g);
 
     // 3b. 중간톤 다발 몸통: 원본에서 잰 셀 그늘의 밝은 쪽 면 (감빛 갈색, 오른쪽은 자줏빛 감).
     //     어두운 바탕 위에 물결진 다발 모양이 드러난다
@@ -626,69 +670,6 @@
       g.drawImage(lc, 0, 0);
     }
 
-    // 6b. 빛 다발의 올: 빛 면 곁을 지나는 가는 결은 같은 빛으로 (다발 끝이 가닥으로 풀린다).
-    //     빛 면 위를 지나는 결은 가끔 어두운 올로 (밝은 면 위에 어두운 가닥 선이 놓인다)
-    const litPats = maps.lit.map((m) => mapPattern(g, m));
-    for (const flat of D.strands) {
-      for (const [a, b] of pieces(flat.length / 2, rng, 10, 40)) {
-        const pts = slicePts(flat, a, b);
-        const m = pts[pts.length >> 1];
-        if (inHole(m[0], m[1])) continue;
-        let hit = 0;
-        for (const q of pts) if (S.nearLit(q[0], q[1], 4)) hit++;
-        const la = grid.at(m[0], m[1]);
-        const onPlane = g.isPointInPath(planes, m[0], m[1], 'evenodd');
-        if (onPlane && rng() < DARK_ON_LIT && !off.has('darkon')) {
-          const path = new Path2D();
-          addRibbon(path, pts, taper(0.35 + rng() * 0.2, 0.9, 0.05, 0.6), (rng() - 0.5) * 2);
-          g.globalAlpha = 0.55 + 0.3 * rng();
-          g.fillStyle = rng() < 0.5 ? INK : '#2c1520';
-          g.fill(path);
-          continue;
-        }
-        const p = hit / pts.length > 0.3 ? FIBRE_P : 0.02 + 0.05 * la.fill + 0.05 * la.rim;
-        if (rng() > p || off.has('fibre')) continue;
-        const path = new Path2D();
-        addRibbon(path, pts, taper(0.35 + rng() * 0.4, 0.9, 0.05, 0.6), (rng() - 0.5) * 2);
-        g.globalAlpha = 0.9;
-        g.fillStyle = litPats[hit && rng() < 0.6 ? 1 : 0];
-        g.fill(path);
-      }
-    }
-
-    // 7. 복숭아빛 심: 긴(60px 넘는) 빛 심 곡선의 가운데 구간에만
-    g.fillStyle = mapPattern(g, maps.hl);
-    for (const R of S.cores.concat(S.thin)) {
-      const wMax = maxOf(R.w) * 0.5;
-      if (wMax < 1.6 || R.len < CORE_MIN_LEN || rng() > CORE_P || off.has('core')) continue;
-      const path = new Path2D();
-      const s0 = 0.1 + rng() * 0.2;
-      addRibbon(path, R.pts, span(Math.min(1.3, 0.4 + wMax * 0.12), s0, s0 + 0.45 + rng() * 0.25),
-        (rng() - 0.5) * wMax * 0.5);
-      g.globalAlpha = 0.8 + 0.2 * rng();
-      g.fill(path);
-    }
-
-    // 8. 먹선: 다발 리본 한쪽 가장자리 (다발 사이 경계) + 원본에서 잰 먹선
-    g.fillStyle = INK;
-    for (const L of locks) {
-      if (rng() > LOCK_INK_P || off.has('lockink')) continue;
-      const side = rng() < 0.5 ? -1 : 1;
-      const path = new Path2D();
-      const s0 = rng() * 0.2;
-      const prof = span(0.5 + rng() * 0.8, s0, 0.55 + rng() * 0.45);
-      addRibbon(path, L.pts, prof, side * lockWidth(L)(0.4) * 0.85);
-      g.globalAlpha = 0.6 + 0.3 * rng();
-      g.fill(path);
-    }
-    D.ink.forEach((flat, i) => {
-      const pts = slicePts(flat, 0, flat.length / 2);
-      if (pts.length < INK_MIN_PTS || off.has('ink')) return;
-      const path = new Path2D();
-      addRibbon(path, pts, taper(D.inkW[i] * INK_W * (0.85 + 0.3 * rng()), 0.9, 0.05, 0.5));
-      g.globalAlpha = 0.75 + 0.25 * rng();
-      g.fill(path);
-    });
     g.restore();
 
     // 8b. 왼쪽 아래로 풀린 다발 끝: 바깥 윤곽을 반투명하게 흐려 가는 끝이 비치게 (상자 안에서만)
@@ -728,7 +709,156 @@
       g.globalCompositeOperation = 'source-over';
     }
     g.globalAlpha = 1;
-    return { canvas: c, locks };
+
+    // 선 그림 (가닥 끝·결 무늬·밝은 결·심·먹선)은 따로 한 장에 그려 앞·뒤 장에 똑같이 얹는다
+    const lc = env.makeCanvas(W, H);
+    const l = lc.getContext('2d');
+    l.save();
+    l.clip(clip, 'evenodd');
+    // 6a. 면 경계의 가닥 끝: 가는 결을 따라가다 셀 면 경계를 지나는 곳마다, 안쪽 면의 색으로 결 방향으로 뻗는
+    //     뾰족한 가닥을 긋는다 (밝은 면 → 어두운 쪽, 어두운 쪽 → 밝은 면 둘 다). 길이가 제각각인 가닥 끝이
+    //     엇물려, 면의 끝이 가위로 오린 종이가 아니라 머리카락 끝으로 풀린다
+    if (!off.has('fringe')) {
+      const rngF = env.rng('hair-fringe');
+      const darkP = mapPattern(l, maps.levels[1]);
+      const midP = mapPattern(l, maps.mid);
+      const litP = mapPattern(l, maps.lit[0]);
+      // 면 단계: 0 = 그늘, 1 = 중간톤 몸통, 2 = 빛 면
+      const tier = (x, y) => (pm.lit(x, y) ? 2 : pm.mid(x, y) ? 1 : 0);
+      const pats = [darkP, midP, litP];
+      const bt = batcher();
+      for (const flat of D.strands) {
+        const n = flat.length / 2;
+        if (n < 4) continue;
+        const pts = slicePts(flat, 0, n);
+        const tiers = pts.map(([x, y]) => tier(x, y));
+        for (let i = 1; i < n; i++) {
+          const a = tiers[i - 1];
+          const b = tiers[i];
+          if (a === b || rngF() > FRINGE_TIP_P) continue;
+          // 높은 단계 쪽(밝은 면)이 낮은 쪽으로 뻗을지, 반대로 어두운 쪽이 밝은 면으로 파고들지
+          const up = rngF() < FRINGE_UP;
+          const from = up ? Math.max(a, b) : Math.min(a, b);
+          // from 단계 쪽 안에서 FRINGE_IN점 출발해 경계를 넘어 out점 뻗는다 (흐름선의 앞쪽이든 뒤쪽이든)
+          const out = 1 + Math.floor(rngF() * (from === 2 ? FRINGE_OUT[1] : FRINGE_OUT[0]));
+          const seg = [];
+          if (a === from) {
+            for (let k = Math.max(0, i - FRINGE_IN); k < Math.min(n, i + out); k++) seg.push(pts[k]);
+          } else {
+            const k0 = Math.min(n - 1, i - 1 + FRINGE_IN);
+            for (let k = k0; k >= Math.max(0, i - 1 - out); k--) seg.push(pts[k]);
+          }
+          if (seg.length < 3) continue;
+          const fin = FRINGE_IN / seg.length;
+          const w0 = FRINGE_TIP_W[0] + rngF() * FRINGE_TIP_W[1];
+          const prof = (s2) => (s2 < fin ? w0 : w0 * Math.pow((1 - s2) / (1 - fin), 0.9));
+          addRibbon(bt.path(pats[from], from === 1 ? MID_A : 1), seg, prof, (rngF() - 0.5) * 2);
+        }
+      }
+      bt.fill(l);
+    }
+
+    // 6c. 결 무늬: 중간톤·빛 면 위의 긴 가는 결을 반투명한 밝은 올·어두운 올로 긋는다. 반투명이라 어느 면 위든 그 면 색보다
+    //     한 톤 밝거나 어두운 선이 되어, 평평한 면 위에도 머리카락 결이 보인다
+    if (!off.has('texture')) {
+      const rngT = env.rng('hair-texture');
+      const bt = batcher();
+      for (const flat of D.strands) {
+        for (const [a, b] of pieces(flat.length / 2, rngT, TEX_LEN[0], TEX_LEN[1])) {
+          if (rngT() > TEX_P) continue;
+          const pts = slicePts(flat, a, b);
+          // 그늘 면에는 긋지 않는다 (원본도 그늘 속 결은 거의 보이지 않는다)
+          const m = pts[pts.length >> 1];
+          if (!pm.mid(m[0], m[1]) && !pm.lit(m[0], m[1])) continue;
+          const light = rngT() < TEX_LIGHT;
+          const prof = taper(TEX_W[0] + rngT() * TEX_W[1], 1, 0, 0.5);
+          const o = (rngT() - 0.5) * 3;
+          const [a0, a1] = light ? TEX_A_HI : TEX_A_LO;
+          addRibbon(bt.path(light ? TEX_HI : INK, a0 + rngT() * a1), pts, prof, o);
+        }
+      }
+      bt.fill(l);
+    }
+
+    // 6d. 밝은 가는 결: 원본에서 잰 밝은 능선 자리에 양 끝이 가는 올을 긋는다 (먹선의 짝).
+    //     빛 면 위의 올은 복숭아빛 심 색, 그늘 위의 올은 윤기 색 (색은 팔레트·조명 구역)
+    if (!off.has('glint') && D.glint) {
+      const pats = [mapPattern(l, maps.sheen), mapPattern(l, maps.hl)];
+      const rngG = env.rng('hair-glint');
+      const bt = batcher();
+      D.glint.forEach((flat, i) => {
+        const pts = chaikinOpen(slicePts(flat, 0, flat.length / 2));
+        const m = pts[pts.length >> 1];
+        const prof = taper(D.glintW[i] * GLINT_W * (0.8 + 0.4 * rngG()), 1, 0, 0.5);
+        addRibbon(bt.path(pats[pm.lit(m[0], m[1])], GLINT_A[0] + rngG() * GLINT_A[1]), pts, prof);
+      });
+      bt.fill(l);
+    }
+
+    // 6b. 빛 다발의 올: 빛 면 곁을 지나는 가는 결은 같은 빛으로 (다발 끝이 가닥으로 풀린다).
+    //     빛 면 위를 지나는 결은 가끔 어두운 올로 (밝은 면 위에 어두운 가닥 선이 놓인다)
+    const litPats = maps.lit.map((m) => mapPattern(l, m));
+    for (const flat of D.strands) {
+      for (const [a, b] of pieces(flat.length / 2, rng, 10, 40)) {
+        const pts = slicePts(flat, a, b);
+        const m = pts[pts.length >> 1];
+        if (inHole(m[0], m[1])) continue;
+        let hit = 0;
+        for (const q of pts) if (S.nearLit(q[0], q[1], 4)) hit++;
+        const la = grid.at(m[0], m[1]);
+        const onPlane = pm.lit(m[0], m[1]);
+        if (onPlane && rng() < DARK_ON_LIT && !off.has('darkon')) {
+          const path = new Path2D();
+          addRibbon(path, pts, taper(0.35 + rng() * 0.2, 0.9, 0.05, 0.6), (rng() - 0.5) * 2);
+          l.globalAlpha = 0.55 + 0.3 * rng();
+          l.fillStyle = rng() < 0.5 ? INK : '#2c1520';
+          l.fill(path);
+          continue;
+        }
+        const p = hit / pts.length > 0.3 ? FIBRE_P : FIBRE_P * (0.1 + 0.3 * la.fill + 0.3 * la.rim);
+        if (rng() > p || off.has('fibre')) continue;
+        const path = new Path2D();
+        addRibbon(path, pts, taper(0.35 + rng() * 0.4, 0.9, 0.05, 0.6), (rng() - 0.5) * 2);
+        l.globalAlpha = 0.9;
+        l.fillStyle = litPats[hit && rng() < 0.6 ? 1 : 0];
+        l.fill(path);
+      }
+    }
+
+    // 7. 복숭아빛 심: 긴(60px 넘는) 빛 심 곡선의 가운데 구간에만
+    l.fillStyle = mapPattern(l, maps.hl);
+    for (const R of S.cores.concat(S.thin)) {
+      const wMax = maxOf(R.w) * 0.5;
+      if (wMax < 1.6 || R.len < CORE_MIN_LEN || rng() > CORE_P || off.has('core')) continue;
+      const path = new Path2D();
+      const s0 = 0.1 + rng() * 0.2;
+      addRibbon(path, R.pts, span(Math.min(1.3, 0.4 + wMax * 0.12), s0, s0 + 0.45 + rng() * 0.25),
+        (rng() - 0.5) * wMax * 0.5);
+      l.globalAlpha = 0.8 + 0.2 * rng();
+      l.fill(path);
+    }
+
+    // 8. 먹선: 다발 리본 한쪽 가장자리 (다발 사이 경계) + 원본에서 잰 먹선
+    const inks = batcher();
+    for (const L of locks) {
+      if (rng() > LOCK_INK_P || off.has('lockink')) continue;
+      const side = rng() < 0.5 ? -1 : 1;
+      const s0 = rng() * 0.2;
+      const prof = span(0.5 + rng() * 0.8, s0, 0.55 + rng() * 0.45);
+      addRibbon(inks.path(INK, 0.6 + 0.3 * rng()), L.pts, prof, side * lockWidth(L)(0.4) * 0.85);
+    }
+    inks.fill(l);
+    const inks2 = batcher();
+    D.ink.forEach((flat, i) => {
+      const pts = slicePts(flat, 0, flat.length / 2);
+      if (pts.length < INK_MIN_PTS || off.has('ink')) return;
+      const prof = taper(D.inkW[i] * INK_W * (0.85 + 0.3 * rng()), 0.9, 0.05, 0.5);
+      addRibbon(inks2.path(INK, 0.75 + 0.25 * rng()), pts, prof);
+    });
+    inks2.fill(l);
+    l.restore();
+    l.globalAlpha = 1;
+    return { canvas: c, lines: lc, locks };
   }
 
   // 곡선 점들의 격자 색인: (x, y)에서 r 안에 점이 있는지
@@ -833,6 +963,118 @@
     return out;
   }
 
+
+  // (x, y)의 결 각(rad, -π/2..π/2): 결 방향장의 가장 가까운 칸
+  function flowAngle(D, x, y) {
+    const F = D.flow;
+    if (!F._bin) F._bin = atob(F.data);
+    const i = Math.min(F.w - 1, Math.max(0, Math.floor(x / F.cell)));
+    const j = Math.min(F.h - 1, Math.max(0, Math.floor(y / F.cell)));
+    return ((F._bin.charCodeAt(j * F.w + i) / 256) * TAU - Math.PI) / 2;
+  }
+
+  // 구멍을 결 방향으로 갸름하게: 무게중심에서 결을 따라 잰 위치 u가 양 끝에 가까울수록 결을 가로지르는 폭을
+  // 줄여, 뭉툭한 마름모 대신 양 끝이 뾰족한 틈(다발과 다발 사이)이 되게 한다
+  function taperHole(D, r) {
+    const n = r.length / 2;
+    let cx = 0;
+    let cy = 0;
+    for (let i = 0; i < n; i++) {
+      cx += r[i * 2];
+      cy += r[i * 2 + 1];
+    }
+    cx /= n;
+    cy /= n;
+    const a = flowAngle(D, cx, cy);
+    const tx = Math.cos(a);
+    const ty = Math.sin(a);
+    let u0 = Infinity;
+    let u1 = -Infinity;
+    const uv = [];
+    for (let i = 0; i < n; i++) {
+      const dx = r[i * 2] - cx;
+      const dy = r[i * 2 + 1] - cy;
+      const u = dx * tx + dy * ty;
+      uv.push([u, -dx * ty + dy * tx]);
+      u0 = Math.min(u0, u);
+      u1 = Math.max(u1, u);
+    }
+    const um = (u0 + u1) / 2;
+    const uh = Math.max(1, (u1 - u0) / 2);
+    const out = [];
+    for (const [u, v] of uv) {
+      const s = Math.min(1, Math.abs(u - um) / uh);
+      const k = Math.pow(Math.max(0, 1 - Math.pow(s, HOLE_TAPER[0])), HOLE_TAPER[1]);
+      const v2 = v * k;
+      out.push(cx + u * tx - v2 * ty, cy + u * ty + v2 * tx);
+    }
+    return out;
+  }
+
+  // 구멍을 건너는 그물: 결에 ±φ로 비스듬한 두 무리의 가는 가닥(살짝 활처럼 휨)이 엇갈린다.
+  // 가닥은 구멍 안에서 시작해 양쪽 다발 위로 몇 px 더 나가 가늘게 끝난다
+  function holeNet(g, D, h, rng, styles) {
+    const a = flowAngle(D, h.c[0], h.c[1]);
+    const phi = NET_PHI[0] + rng() * NET_PHI[1];
+    const sp = NET_SP[0] + rng() * NET_SP[1];
+    for (const sgn of [-1, 1]) {
+      const b = a + sgn * phi;
+      const dx = Math.cos(b);
+      const dy = Math.sin(b);
+      // 가닥들을 결에 수직인 방향 e로 늘어놓는다
+      const ex = -dy;
+      const ey = dx;
+      let e0 = Infinity;
+      let e1 = -Infinity;
+      let d0 = Infinity;
+      let d1 = -Infinity;
+      for (const [x, y] of h.pts) {
+        const e = (x - h.c[0]) * ex + (y - h.c[1]) * ey;
+        const d = (x - h.c[0]) * dx + (y - h.c[1]) * dy;
+        e0 = Math.min(e0, e);
+        e1 = Math.max(e1, e);
+        d0 = Math.min(d0, d);
+        d1 = Math.max(d1, d);
+      }
+      for (let e = e0 + sp * (0.3 + rng() * 0.7); e < e1; e += sp * (0.7 + rng() * 0.6)) {
+        // 구멍 안에 드는 구간 [first, last]을 2px 간격으로 찾는다
+        let first = null;
+        let last = null;
+        for (let d = d0 - 2; d <= d1 + 2; d += 2) {
+          const x = h.c[0] + ex * e + dx * d;
+          const y = h.c[1] + ey * e + dy * d;
+          if (g.isPointInPath(h.path, x, y)) {
+            if (first === null) first = d;
+            last = d;
+          }
+        }
+        if (first === null || last - first < 6) continue;
+        const ext0 = NET_EXT[0] + rng() * NET_EXT[1];
+        const ext1 = NET_EXT[0] + rng() * NET_EXT[1];
+        const da = first - ext0;
+        const db = last + ext1;
+        const sag = (rng() - 0.5) * 2 * NET_SAG * (db - da);
+        // 가닥마다 조금씩 다른 기울기 (반듯한 빗금 격자가 되지 않게): 가운데를 축으로 돌린다
+        const tw = (rng() - 0.5) * 2 * NET_JIT;
+        const mid = (da + db) / 2;
+        const pts = [];
+        const m = Math.max(3, Math.ceil((db - da) / 4));
+        for (let k = 0; k <= m; k++) {
+          const s = k / m;
+          const d = da + (db - da) * s;
+          const o = e + sag * 4 * s * (1 - s) + (d - mid) * tw;
+          pts.push([h.c[0] + ex * o + dx * d, h.c[1] + ey * o + dy * d]);
+        }
+        const lit = rng() < NET_LIT;
+        const path = new Path2D();
+        addRibbon(path, pts, taper(NET_W[0] + rng() * NET_W[1], 0.9, 0.05, 0.45));
+        g.globalAlpha = lit ? 0.55 + 0.3 * rng() : 0.7 + 0.3 * rng();
+        g.fillStyle = lit ? styles.lit : styles.dark();
+        g.fill(path);
+      }
+    }
+    g.globalAlpha = 1;
+  }
 
   // 구멍 고리 → 점·넓이·무게중심·경로
   function holeInfo(r) {
@@ -1087,6 +1329,143 @@
     }
   }
 
+  // 잔머리 다발: 실루엣 가장자리에서 결이 바깥을 향하는 곳(다발 끝)마다 머리 속에서 시작해 결 방향으로 뻗는
+  // 가는 가닥. 처음엔 결을 따르다 끝으로 갈수록 한쪽으로 점점 세게 휘어 말리고, 둘셋씩 나란히 나와 다발이
+  // 갈라지듯 보인다. 빛 받는 쪽은 산호빛, 나머지는 어두운 올
+  function drawWisps(env, D, g, pm, maps, grid) {
+    const rng = env.rng('hair-wisp');
+    const fly = mapPattern(g, maps.fly);
+    const inSil = pm.sil;
+    const strand = (x, y, a, len, curl, w, lit, alpha) => {
+      const pts = [];
+      let turned = 0;
+      let d = -WISP_ROOT;
+      for (; d <= len; d += 3) {
+        pts.push([x, y]);
+        const s = Math.max(0, d) / len;
+        // 실루엣 밖 15px까지는 결을 따르고, 그 뒤 20px에 걸쳐 휨이 붙어 거의 같은 곡률의 호로 말린다
+        if (d < 15) {
+          const f = flowAngle(D, x, y);
+          let df = f - a;
+          df -= Math.PI * Math.round(df / Math.PI);
+          a += df * 0.25;
+        } else if (Math.abs(turned) < WISP_TURN) {
+          const k = curl * Math.min(1, (d - 15) / 20) * (0.8 + 0.4 * s);
+          a += k;
+          turned += k;
+        }
+        x += Math.cos(a) * 3;
+        y += Math.sin(a) * 3;
+      }
+      if (pts.length < 6) return;
+      const root = WISP_ROOT / (WISP_ROOT + len);
+      const path = new Path2D();
+      addRibbon(path, chaikinOpen(pts), (s) => w * (s < root ? 1 : Math.pow((1 - s) / (1 - root), 0.8)));
+      g.globalAlpha = alpha;
+      g.fillStyle = lit ? fly : rng() < 0.5 ? INK : HAIR_LINE;
+      g.fill(path);
+    };
+    for (const ring of D.sil) {
+      const n = ring.length / 2;
+      for (let i = 0; i < n; i++) {
+        const x = ring[i * 2];
+        const y = ring[i * 2 + 1];
+        const box = WISP_BOX.find(([x0, y0, x1, y1]) => x >= x0 && x < x1 && y >= y0 && y < y1);
+        if (!box || rng() > box[4]) continue;
+        // 결 방향 중 바깥을 향하는 쪽
+        let a = flowAngle(D, x, y);
+        const out = (b) => {
+          const c = Math.cos(b);
+          const sn = Math.sin(b);
+          return !inSil(x + c * 10, y + sn * 10) && inSil(x - c * 8, y - sn * 8);
+        };
+        if (!out(a)) {
+          a += Math.PI;
+          if (!out(a)) continue;
+        }
+        const la = grid.at(x, y);
+        const lit = rng() < 0.4 + 0.6 * Math.max(la.rim, la.fill);
+        const len = WISP_LEN[0] + rng() * WISP_LEN[1];
+        // 휘는 쪽: 대개 아래(중력) 쪽으로 감긴다
+        let toDown = Math.PI / 2 - a;
+        toDown -= TAU * Math.round(toDown / TAU);
+        const sgn = (toDown >= 0 ? 1 : -1) * (rng() < WISP_DOWN ? 1 : -1);
+        const curl = sgn * (WISP_CURL[0] + rng() * WISP_CURL[1]);
+        const sib = rng() < 0.5 ? 1 + Math.floor(rng() * 2) : 0;
+        for (let k = 0; k <= sib; k++) {
+          const o = k ? (rng() - 0.5) * 7 : 0;
+          const sx = x - Math.sin(a) * o;
+          const sy = y + Math.cos(a) * o;
+          const sa = a + (rng() - 0.5) * 0.12;
+          const sl = len * (0.7 + 0.5 * rng());
+          const sc = curl * (0.8 + 0.4 * rng());
+          const sw = WISP_W[0] + rng() * WISP_W[1];
+          const slit = k ? lit && rng() < 0.7 : lit;
+          strand(sx, sy, sa, sl, sc, sw, slit, 0.65 + 0.35 * rng());
+        }
+      }
+    }
+    g.globalAlpha = 1;
+  }
+
+  // 같은 칠(색·불투명도)끼리 리본을 한 경로에 모아 한 번에 칠한다. 리본은 언제나 같은 쪽으로 감기므로
+  // 겹쳐도 구멍 없이 합쳐진다 (불투명도는 1/8 단계로 묶는다)
+  function batcher() {
+    const groups = [];
+    return {
+      path(style, alpha) {
+        const a = Math.round(alpha * 8) / 8;
+        let q = groups.find((v) => v.style === style && v.a === a);
+        if (!q) groups.push((q = { style, a, path: new Path2D() }));
+        return q.path;
+      },
+      fill(g) {
+        for (const q of groups) {
+          g.globalAlpha = q.a;
+          g.fillStyle = q.style;
+          g.fill(q.path);
+        }
+        g.globalAlpha = 1;
+      },
+    };
+  }
+
+  // 열린 꺾은선을 Chaikin 한 번으로 매끈하게 (양 끝점은 그대로): 정수로 반올림한 점의 꺾임을 편다
+  function chaikinOpen(pts) {
+    if (pts.length < 3) return pts;
+    const out = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i];
+      const [x1, y1] = pts[i + 1];
+      out.push([0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1]);
+      out.push([0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1]);
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  // 면 지도 (반 해상도 한 장): R = 중간톤 몸통, G = 빛 면, B = 실루엣. 점이 어느 면에 드는지 빨리 읽는다
+  function planeMap(env, D, sil) {
+    const w = Math.ceil(env.W / 2);
+    const h = Math.ceil(env.H / 2);
+    const c = env.makeCanvas(w, h);
+    const g = c.getContext('2d');
+    g.scale(0.5, 0.5);
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = '#ff0000';
+    g.fill(ringsPath(D.midPlane), 'evenodd');
+    g.fillStyle = '#00ff00';
+    g.fill(ringsPath(D.litPlane), 'evenodd');
+    g.fillStyle = '#0000ff';
+    g.fill(sil, 'evenodd');
+    const d = g.getImageData(0, 0, w, h).data;
+    const at = (x, y, k) => {
+      const i = Math.min(h - 1, Math.max(0, (y / 2) | 0)) * w + Math.min(w - 1, Math.max(0, (x / 2) | 0));
+      return d[i * 4 + k] > 127 ? 1 : 0;
+    };
+    return { mid: (x, y) => at(x, y, 0), lit: (x, y) => at(x, y, 1), sil: (x, y) => at(x, y, 2) };
+  }
+
   function clipTo(env, src, path) {
     const c = env.makeCanvas(env.W, env.H);
     const g = c.getContext('2d');
@@ -1107,7 +1486,14 @@
       const D = P.hairData;
       const C = env.core;
       const ramps = {};
-      for (const k of Object.keys(RAMPS)) ramps[k] = RAMPS[k].map(([u, hex]) => [u, C.hexToRgb(hex)]);
+      for (const k of Object.keys(RAMPS)) {
+        // 램프는 RAMP_N+1칸 표로 미리 풀어 둔다 (색 지도 수십만 칸을 빨리 칠하려고)
+        const stops = RAMPS[k].map(([u, hex]) => [u, C.hexToRgb(hex)]);
+        const lut = [];
+        for (let i = 0; i <= RAMP_N; i++) lut.push(rampAt(stops, i / RAMP_N));
+        stops.lut = lut;
+        ramps[k] = stops;
+      }
       const noise = C.makeNoise2D((env.seed ^ 0x4a17) >>> 0);
       const dist = bgDistance(env, D.outer);
       const grid = lightGrid(env, dist, noise);
@@ -1146,7 +1532,7 @@
         }),
         // 빛 면 둘레의 중간톤 (감빛 갈색, 오른쪽은 자줏빛 감)
         mid: makeMap(env, grid, (L) =>
-          tint(L, Math.min(0.5, 0.4 + 0.05 * Math.max(L.rim, L.fill) - 0.06 * L.dark), ramps, 2.5)),
+          tint(L, Math.min(0.52, 0.42 + 0.05 * Math.max(L.rim, L.fill) - 0.06 * L.dark), ramps, 2.5)),
       };
       tick('maps');
 
@@ -1165,11 +1551,23 @@
       };
       S.nearLit = pointIndex(S.cores.concat(S.thin, D.litPlane.map((r) => curve(r, null))), 12);
 
+      const off = offSet(env);
       const silPath = ringsPath(D.sil);
-      const holesPath = ringsPath(D.holes);
+      const holeRings = off.has('taper') ? D.holes : D.holes.map((r) => taperHole(D, r));
+      const holesPath = ringsPath(holeRings);
       const backPath = env.params.get('hairext') === '0' ? silPath : ringsPath(D.back);
-      const { canvas: hair } = renderHair(env, D, maps, grid, backPath, holesPath, S);
+      const pm = planeMap(env, D, silPath);
+      const { canvas: hair, lines } = renderHair(env, D, maps, grid, backPath, holesPath, S, pm);
       tick('render');
+      const frontPath = ringsPath(D.front);
+      const front = clipTo(env, hair, frontPath);
+      // 선 그림은 면 위에 (면이 남은 곳에만: 구멍 안이나 실루엣 밖으로 새지 않게)
+      for (const cv of [hair, front]) {
+        const g = cv.getContext('2d');
+        g.globalCompositeOperation = 'source-atop';
+        g.drawImage(lines, 0, 0);
+        g.globalCompositeOperation = 'source-over';
+      }
 
       // 디버그: hairmap=k 이면 k번째 그늘 단계 지도(또는 hl, fly, lit0/lit1, 조명 값)를 실루엣에 칠해 본다
       const dbg = env.params.get('hairmap');
@@ -1198,6 +1596,10 @@
           0, 0, env.W, env.H);
       }
 
+      tick('glow');
+      // 잔머리 다발 (정적): 뒤 장에 굽는다 (몸·얼굴보다 뒤, 실루엣 밖 배경 위)
+      if (!off.has('wisp')) drawWisps(env, D, hair.getContext('2d'), pm, maps, grid);
+
       const rngA = env.rng('hair-anim');
       const rngF = env.rng('hair-fly');
       const fly = D.fly.concat(LOOPS).map((flat) => ({
@@ -1210,15 +1612,24 @@
       }));
       // 앞 장: 몸·얼굴 위로 다시 덮는 머리 + 다발 사이 틈을 건너는 가는 가닥 (불투명, 끝이 가늘게).
       // 어두운 가닥과 빛 받는 가닥이 그물처럼 엇갈린다
-      const off = offSet(env);
-      const frontPath = ringsPath(D.front);
-      const front = clipTo(env, hair, frontPath);
+      tick('wisp');
       if (!off.has('veil')) veilFront(env, D, front, frontPath, maps, grid);
+      tick('veil');
       {
         const g = front.getContext('2d');
         const rngG = env.rng('hair-gap');
         // 구멍 가장자리의 빛: 빛을 향한 쪽에만 2~4px 산호빛 테 (양 끝은 0으로 가늘어져 고리가 닫히지 않는다)
-        const holes = D.holes.map((r) => holeInfo(r));
+        const holes = holeRings.map((r) => holeInfo(r));
+        // 구멍 가장자리 먹선: 다발 윤곽 (틈 쪽으로 가늘게)
+        if (!off.has('holeink')) {
+          g.save();
+          g.strokeStyle = INK;
+          g.lineJoin = 'round';
+          g.lineWidth = 1.3;
+          g.globalAlpha = 0.75;
+          for (const h of holes) if (h.area > 150) g.stroke(h.path);
+          g.restore();
+        }
         if (!off.has('rim')) {
           g.fillStyle = mapPattern(g, maps.lit[0]);
           const path = new Path2D();
@@ -1226,6 +1637,23 @@
           g.globalAlpha = 0.9;
           g.fill(path);
           g.globalAlpha = 1;
+        }
+        // 그물: 오른쪽 아래 구멍마다 비스듬히 엇갈리는 가는 가닥
+        if (!off.has('net')) {
+          const rngN = env.rng('hair-net');
+          const darkL = mapPattern(g, maps.levels[1]);
+          const styles = {
+            lit: mapPattern(g, maps.gap),
+            dark: () => {
+              const r = rngN();
+              return r < 0.45 ? INK : r < 0.8 ? HAIR_LINE : darkL;
+            },
+          };
+          const [bx0, by0, bx1, by1] = NET_BOX;
+          for (const h of holes) {
+            if (h.area < 250 || h.c[0] < bx0 || h.c[0] > bx1 || h.c[1] < by0 || h.c[1] > by1) continue;
+            holeNet(g, D, h, rngN, styles);
+          }
         }
         // 틈 가닥: 활처럼 휜 물결(진폭 3~6px). 대부분 분홍·산호빛 반투명, 일부만 어두운 선.
         // 구멍 하나에는 3~6올만 (촘촘한 빗살이 되지 않게), 구멍 밖 틈은 GAP_P 확률로
@@ -1250,6 +1678,7 @@
         g.globalAlpha = 1;
       }
 
+      tick('holes');
       // 목·가슴을 가로지르는 가는 가닥
       const cross = D.cross.map((flat, i) => ({
         pts: slicePts(flat, 0, flat.length / 2),
