@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="콘서트 무대 일러스트 한 장을 여러 가지 코드 기법으로 다시 그려 원본과 비교합니다." />
+    <title>코드로 그린 무대</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="top">
+        <h1>코드로 그린 무대</h1>
+        <p class="lede">그림 한 장을 네 가지 방법으로 다시 그렸습니다. 슬라이더를 밀면 원본과 겹쳐 볼 수 있습니다.</p>
+      </header>
+
+      <section class="viewer" aria-label="그림">
+        <div class="stage" id="stage">
+          <div class="stage-scale" id="stage-scale">
+            <div class="stage-host" id="host"></div>
+            <img class="stage-ref" id="ref" src="assets/reference.jpg" alt="원본 그림" />
+            <div class="stage-split" id="split" hidden></div>
+          </div>
+          <p class="stage-status" id="status" hidden></p>
+        </div>
+        <div class="controls">
+          <label class="compare" for="compare">
+            <span>원본</span>
+            <input id="compare" type="range" min="0" max="100" value="0" />
+          </label>
+          <button class="play" id="play" type="button" aria-pressed="true">멈춤</button>
+        </div>
+      </section>
+
+      <nav class="setlist" id="setlist" aria-label="기법"></nav>
+
+      <section class="notes" id="notes">
+        <h2 data-k="title"></h2>
+        <p data-k="uses"></p>
+        <p class="score">원본과의 구조 유사도 <strong data-k="score">–</strong></p>
+      </section>
+    </main>
+
+    <script src="js/core.js"></script>
+    <script src="js/methods.js"></script>
+    <script src="js/scores.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
