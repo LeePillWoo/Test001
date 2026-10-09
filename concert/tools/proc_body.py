@@ -32,7 +32,8 @@ OUT_JS = os.path.join(HERE, '..', 'js', 'procedural', 'data', 'body.js')
 # part: 이 안의 같은 종류(피부/드레스) 화소가 그 부위다 — 같은 종류 부위끼리의 경계를 정한다.
 # ext:  가려진 곳(hide)과 겹치는 만큼 부위를 넓힌다 — 머리카락 밑으로 이어지는 몸.
 # 왼쪽 어깨끈 중심선(팔과 몸통의 경계)
-STRAP_L = [(641, 470), (652, 525), (657, 578), (650, 622), (635, 666), (614, 706), (590, 742)]
+STRAP_L = [(641, 470), (651, 510), (658, 535), (661, 570), (657, 600), (647, 630), (633, 670), (623, 690),
+           (608, 710), (591, 730), (582, 745)]
 COMPS = {
     'torso': dict(
         kind='skin',
@@ -42,6 +43,7 @@ COMPS = {
         hide=('hair', 'face', 'straps', 'dress', 'arm'),
         close=9,
         soft=4.5,  # 명암 경계 다듬기(가슴은 부드럽게)
+        outline=4.5,  # 가슴 오른쪽은 가닥 사이로 피부가 비친다: 가닥 단위 굴곡은 버린다
         hi=False,
         eps=2.2,  # 각진 셀 그림자
         simplify=3,
@@ -71,6 +73,7 @@ COMPS = {
         close=7,
         soft=3.0,
         min_edge=60,
+        hi=False,
     ),
     'dress': dict(
         kind='dress',
@@ -235,6 +238,12 @@ def build(debug=None):
     m['straps'] = cv2.dilate(m['straps'].astype(np.uint8), ell(2)).astype(bool)
     m['sashPart'] = raster(an['parts']['sash'], shape)
 
+    # hair 레이어와 같은 규칙: 몸 덩어리(hull) 안의 머리카락은 몸 '앞'에 그려진다(두꺼우면 채운 다발,
+    # 가늘면 가닥 선). 그 밑은 몸으로 채워야 가닥 사이로 배경이나 뒷머리가 비치지 않는다.
+    body = (m['skin'] | m['dress'] | m['face']).astype(np.uint8)
+    hull = ndi.binary_fill_holes(cv2.morphologyEx(body, cv2.MORPH_CLOSE, ell(22)))
+    infront = m['hair'] & hull
+
     comps = {}
     for name in ORDER:
         c = COMPS[name]
@@ -249,17 +258,19 @@ def build(debug=None):
         near = cv2.dilate(vis.astype(np.uint8), ell(MARGIN)).astype(bool)
         soft = hide & m['hair']
         ext = poly(c['ext'], shape)
-        full = vis | (closed & hide & part) | (ext & hide & ~soft) | (ext & soft & near)
-        full = ndi.binary_fill_holes(smooth(full))  # 몸 부위 안의 구멍은 늘 머리카락 그림자다
+        full = vis | (closed & hide & part) | (ext & hide & ~soft) | (ext & soft & near) | (infront & part & ext)
+        # 몸 부위 안의 구멍은 늘 머리카락 그림자다. outline이 크면 가닥 하나하나의 들쭉날쭉함을 지운다
+        full = ndi.binary_fill_holes(smooth(full, sigma=c.get('outline', 1.6)))
         comps[name] = full
 
     # 선을 긋지 않을 곳: 머리카락·얼굴(위 레이어)과, 이 부위보다 나중에 그려 덮는 부위
     above = m['hair'] | m['face'] | m['straps']
+    hair_near = cv2.dilate(m['hair'].astype(np.uint8), ell(6)).astype(bool)
     cover = {
         'torso': above | comps['dress'] | comps['arm'],
         'arm': m['face'] | m['straps'],  # 팔 둘레의 머리카락은 대부분 팔 뒤에 있다
         'waist': above | comps['arm'] | comps['skirt'] | comps['sash'],
-        'fore': above,
+        'fore': above | hair_near,  # 가닥 사이 틈의 가장자리는 선이 아니다
         'dress': above | comps['arm'],
         'skirt': above | comps['arm'] | comps['sash'],
         'sash': above,
@@ -303,7 +314,7 @@ def build(debug=None):
 
     data = {
         'version': 1,
-        'shapes': {k: rings(v) for k, v in comps.items()},
+        'shapes': {k: rings(v, min_area=150) for k, v in comps.items()},
         'edges': {k: edges(v, cover[k], COMPS[k].get('min_edge', 24)) for k, v in comps.items()},
         'bands': bands,
         'strapL': [list(p) for p in STRAP_L],

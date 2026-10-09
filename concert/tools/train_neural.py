@@ -385,6 +385,11 @@ def main():
 
     t_start = time.time()
     rng = np.random.default_rng(args.seed)
+
+    # 학습 뒤 단계마다 따로 시드를 둔다: --load로 이어 해도 처음부터 돌린 것과 같은 결과가 나온다.
+    def phase_rng(k):
+        return np.random.default_rng(args.seed + 1000 * k)
+
     ref = np.asarray(Image.open(REF).convert('RGB'), dtype=np.float32) / 255.0
     n = ref.shape[0]
     levels = parse_levels(args.levels, n)
@@ -415,7 +420,7 @@ def main():
     if args.qat_steps:
         args_q = argparse.Namespace(**vars(args))
         args_q.nested = 0.0
-        train(field, ref, args_q, rng, args.qat_steps, lr_scale=args.qat_lr, qat=qp)
+        train(field, ref, args_q, phase_rng(2), args.qat_steps, lr_scale=args.qat_lr, qat=qp)
     qs = [(quant(G, *p), p[0], p[1]) for G, p in zip(field.grids, qp)]
     deq = [dequant(q, *p) for (q, _, _), p in zip(qs, qp)]
     p_quant = psnr(render(field, grids=deq), ref)
@@ -426,7 +431,7 @@ def main():
         backup = ([w.copy() for w in field.W], [x.copy() for x in field.b])
         args_t = argparse.Namespace(**vars(args))
         args_t.nested = 0.0
-        train(field, ref, args_t, rng, args.tune_steps, mlp_only=True, grids=deq)
+        train(field, ref, args_t, phase_rng(3), args.tune_steps, mlp_only=True, grids=deq)
         p_tuned = psnr(render(field, grids=deq), ref)
         print(f'tuned  psnr {p_tuned:.2f} dB', flush=True)
         if p_tuned < p_quant:
@@ -440,7 +445,7 @@ def main():
         field.init_mlp(hidden, np.random.default_rng(args.seed + 1), ref.reshape(-1, 3).mean(0))
         args_i = argparse.Namespace(**vars(args))
         args_i.nested, args_i.nested_min = 0.85, 0
-        train(field, ref, args_i, rng, args.intro_steps, mlp_only=True, grids=deq, lr_scale=0.5)
+        train(field, ref, args_i, phase_rng(4), args.intro_steps, mlp_only=True, grids=deq, lr_scale=0.5)
         intro = fold(field.W, field.b, qs)
         field.W, field.b = main
 

@@ -13,6 +13,9 @@
   const TAU = Math.PI * 2;
   const CELL = 4; // 조명 격자 한 칸(px)
   const LEVELS = 7; // 밝기 단계 지도 개수
+  const STRAND_COPIES = 1; // 흐름선 조각 하나에 겹쳐 그릴 가는 가닥 수
+  const STRAND_P = 0.5; // 가는 가닥을 그릴 확률 (낮을수록 다발의 평평한 셀 색이 드러난다)
+  const INK_P = 0.3; // 결 먹선을 그릴 확률
 
   // ── 팔레트: 밝기 램프 (u = 0 그늘 → 1 가장 밝은 결) ──────────
   const RAMPS = {
@@ -59,29 +62,32 @@
   const LIGHTS = [
     // 뒤에서 오는 역광 (배경 쪽 가장자리 띠)
     [520, 380, 430, 'warm', 0.9, 80],
-    [880, 60, 260, 'warm', 0.7, 50],
+    [880, 60, 260, 'warm', 0.6, 38],
     [230, 790, 170, 'warm', 0.7, 50],
     [1080, 150, 150, 'pink', 0.7, 45],
     [1060, 140, 130, 'warm', 0.5, 45],
-    [1160, 430, 250, 'pink', 0.95, 45],
+    [1160, 430, 250, 'pink', 0.95, 65],
     [1150, 880, 220, 'pink', 0.85, 35],
     [1000, 1150, 260, 'pink', 0.35, 20],
     // 앞에서 오는 무대 조명 (얼굴 둘레 머리, 오른쪽 덩어리 바깥 결)
-    [890, 160, 210, 'warm', 0.55, 0],
-    [690, 230, 120, 'warm', 0.5, 0],
+    [890, 160, 210, 'warm', 0.45, 0],
+    [880, 150, 60, 'warm', 0.5, 0],
+    [990, 220, 60, 'pink', 0.6, 0],
+    [690, 230, 120, 'warm', 0.3, 0],
     [640, 480, 100, 'warm', 0.5, 0],
     [520, 440, 90, 'warm', 0.45, 0],
     [770, 540, 80, 'warm', 0.55, 0],
-    [1060, 260, 120, 'warm', 0.55, 0],
-    [1140, 520, 140, 'pink', 0.75, 0],
-    [1150, 720, 110, 'pink', 0.45, 0],
+    [1060, 260, 120, 'pink', 0.55, 0],
+    [1170, 520, 90, 'pink', 0.6, 0],
+    [1170, 720, 70, 'pink', 0.4, 0],
     [1000, 860, 70, 'pink', 0.5, 0],
     // 그늘의 보랏빛과 깊은 그늘
     [760, 70, 140, 'violet', 0.5, 0],
-    [1020, 640, 150, 'violet', 0.45, 0],
+    [1030, 650, 170, 'violet', 0.8, 0],
     [960, 1100, 220, 'violet', 0.35, 0],
     [520, 390, 70, 'violet', 0.5, 0],
     [740, 350, 70, 'dark', 0.5, 0],
+    [690, 280, 60, 'dark', 0.6, 0],
     [900, 560, 80, 'dark', 0.5, 0],
     [930, 1060, 190, 'dark', 0.4, 0],
   ];
@@ -134,7 +140,7 @@
     let c = rampAt(ramps.warm, u);
     const pinkW = L.pink / (L.pink + L.warm + 1e-3);
     c = mix3(c, rampAt(ramps.pink, u), pinkW * Math.min(1, L.pink * 2));
-    return mix3(c, rampAt(ramps.violet, u), L.violet * (1 - lit) * 0.6);
+    return mix3(c, rampAt(ramps.violet, u), L.violet * (1 - lit) * 0.75);
   }
 
   // 바깥 배경까지의 거리 (CELL 해상도, 체임퍼 거리)
@@ -299,7 +305,8 @@
         const pts = slicePts(flat, a, b);
         const m = pts[pts.length >> 1];
         // 두 갈래 분포: 밝은 다발 / 어두운 다발. 역광이 센 곳일수록 밝은 다발이 많다
-        const pBright = 0.06 + 0.6 * grid.at(m[0], m[1]).rim;
+        const la = grid.at(m[0], m[1]);
+        const pBright = 0.06 + 0.6 * la.rim;
         const v = rng() < pBright ? 0.72 + rng() * 0.28 : 0.18 + rng() * 0.36;
         out.push({ pts, v, w: 6 + rng() * 7 });
       }
@@ -384,21 +391,24 @@
         for (let i = 0; i < pts.length; i += 2) dEdge = Math.min(dEdge, grid.at(pts[i][0], pts[i][1]).d);
         const la = grid.at(m[0], m[1]);
         const rim = dEdge < 7 && rng() < la.rim * 0.8;
-        for (let k = 0; k < 2; k++) {
+        for (let k = 0; k < STRAND_COPIES; k++) {
+          const drawn = rng() < STRAND_P;
           const off = (rng() - 0.5) * 3.2;
           const w0 = 0.5 + rng() * 1.0;
           let v = lv + (rng() - 0.5) * 0.12;
           if (rng() < 0.07) v = lv > 0.5 ? 0.1 + rng() * 0.3 : 0.55 + rng() * 0.35;
           if (rim && k === 0) v = 0.8 + rng() * 0.2;
           v = Math.min(1, Math.max(0, v));
-          const path = new Path2D();
-          addRibbon(path, pts, (s) => w0 * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.85 + 0.08)), 0.6), off);
-          g.globalAlpha = 0.8 + 0.2 * rng();
-          g.fillStyle = level(v);
-          g.fill(path);
+          if (drawn) {
+            const path = new Path2D();
+            addRibbon(path, pts, (s) => w0 * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.85 + 0.08)), 0.6), off);
+            g.globalAlpha = 0.8 + 0.2 * rng();
+            g.fillStyle = level(v);
+            g.fill(path);
+          }
           // 하이라이트: 밝은 다발 위에 많이, 앞 조명이 닿는 어두운 다발 위에도 가늘게
           const pHl = v > 0.66 ? 0.7 : 0.02 + 0.5 * la.fill;
-          if (rng() < pHl) hl.push({ pts, off, w: 0.5 + rng() * 1.1, a: 0.7 + 0.3 * rng() });
+          if (drawn && rng() < pHl) hl.push({ pts, off, w: 0.5 + rng() * 1.1, a: 0.7 + 0.3 * rng() });
         }
       }
     }
@@ -427,6 +437,19 @@
         side * lockWidth(L)(0.4) * 0.85);
       g.globalAlpha = 0.7 + 0.3 * rng();
       g.fill(path);
+    }
+
+    // 6. 결 먹선: 가는 가닥 일부를 아주 가는 어두운 선으로 (다발 안의 결)
+    for (const flat of D.strands) {
+      for (const [a, b] of pieces(flat.length / 2, rng, 10, 45)) {
+        if (rng() > INK_P) continue;
+        const pts = slicePts(flat, a, b);
+        const wl = 0.35 + rng() * 0.45;
+        const path = new Path2D();
+        addRibbon(path, pts, (s) => wl * Math.sin(Math.PI * s), (rng() - 0.5) * 3);
+        g.globalAlpha = 0.55 + 0.4 * rng();
+        g.fill(path);
+      }
     }
     g.restore();
     return c;
@@ -511,10 +534,12 @@
       for (let k = 0; k < LEVELS; k++) levels.push(makeMap(env, grid, (L) => shade(L, k / (LEVELS - 1), ramps)));
       const maps = {
         levels,
-        // 하이라이트: 빛이 닿는 곳일수록 복숭아·흰빛
+        // 하이라이트: 빛이 닿는 곳일수록 밝다. 연어빛 구역은 복숭아·흰빛까지, 자홍 구역은 진한 산호빛에서 멈춘다
         hl: makeMap(env, grid, (L) => {
           const k = Math.max(L.rim, L.fill);
-          return shade({ ...L, rim: 0.65 + 0.35 * k, fill: 0, dark: L.dark * 0.4 }, 0.82 + 0.18 * k, ramps);
+          const pinkW = L.pink / (L.pink + L.warm + 1e-3);
+          const v = (0.82 + 0.18 * k) * (1 - 0.12 * pinkW);
+          return shade({ ...L, rim: 0.65 + 0.35 * k, fill: 0, dark: L.dark * 0.4 }, v, ramps);
         }),
         // 잔머리: 테두리빛 색
         fly: makeMap(env, grid, (L) =>
