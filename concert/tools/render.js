@@ -26,7 +26,14 @@ const TYPES = {
 };
 
 function parseArgs(argv) {
-  const out = { method: 'procedural', params: '', time: 0, seed: 7, out: path.join(os.tmpdir(), 'concert-render.png'), timeout: 180000 };
+  const out = {
+    method: 'procedural',
+    params: '',
+    time: 0,
+    seed: 7,
+    out: path.join(os.tmpdir(), 'concert-render.png'),
+    timeout: 180000,
+  };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i].replace(/^--/, '');
     const v = argv[i + 1];
