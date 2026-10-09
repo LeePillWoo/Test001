@@ -88,11 +88,11 @@
   // 선택: fadeIn·fade(길이 비율로 밝아지기 시작·사라지기 시작), haze(빔 결을 따라 흐르는 연무의 세기)
   const BEAMS = [
     // 위 가운데 조명의 빨간 빔 (광원을 화면 위 바깥에 두어 폭을 맞췄다), 붉은 심, 자홍 가장자리
-    [250, -200, 69, 640, 110, 200, '#ff1438', 1, 16, 'source-over', 3, { fade: 0.78, haze: 0.12 }],
+    [250, -200, 69, 640, 95, 210, '#ff1438', 1, 24, 'source-over', 3, { fade: 0.78, haze: 0.12 }],
     [326, -10, 72, 320, 30, 100, '#ff4a50', 0.5, 14, 'lighter', 3],
     [300, 40, 78, 200, 30, 50, '#c01860', 0.5, 14, 'screen', 3],
     // (430,215) 조명에서 왼쪽 아래로 퍼지는 파란 원뿔과 연보라 심
-    [430, 215, 125, 520, 20, 300, '#3a48ff', 1, 14, 'source-over', 4, { fadeIn: 0.25, fade: 0.8, haze: 0.1 }],
+    [430, 215, 125, 520, 20, 300, '#3a48ff', 1, 18, 'source-over', 4, { fadeIn: 0.35, fade: 0.8, haze: 0.1 }],
     [430, 215, 129, 220, 12, 50, '#a0b0ff', 0.6, 8, 'screen', 4],
     // 오른쪽 위로 비스듬한 파란 빛, 왼쪽 위 보라 빛줄기, 별빛 조명의 분홍 꼬리, 오른쪽 위 파란 조각
     [565, 150, 25, 220, 30, 120, '#2e44f0', 0.75, 14, 'screen', 3],
@@ -173,16 +173,11 @@
       blur: 1.6 },
     { pts: [[298, 383], [315, 393], [298, 408], [282, 410]], c0: '#ff4a80', c1: '#ff2a60', blur: 1.4 },
     { pts: [[217, 408], [227, 419], [212, 452], [207, 424]], c0: '#fff0ff', c1: '#ffb0f0', blur: 2.4 },
-    { pts: [[680, 0], [700, -4], [704, 12], [684, 16]], c0: PAL.hot, c1: PAL.orchid, blur: 1.6 },
-    { pts: [[1196, 545], [1222, 538], [1218, 552]], c0: PAL.hot, c1: PAL.pink, blur: 1.2 },
   ];
   // 둥근 보케 원반: x, y, r, 색, 세기
   const BOKEH = [
     [240, 505, 19, '#ff9ee0', 0.9],
-    [22, 191, 12, PAL.sky, 0.7],
-    [395, 610, 16, PAL.hot, 0.35],
     [16, 566, 20, '#e030b0', 0.8],
-    [1190, 700, 10, PAL.pink, 0.3],
   ];
 
   // 응원봉: 손잡이 쪽 끝(x0,y0)에서 위쪽 끝(x1,y1)까지, 굵기, 세기
@@ -437,10 +432,10 @@
       g.fill();
     };
     // 넓은 붉은 번짐 → 진분홍 몸통 → 연분홍 심 → 흰 심
-    capsule(-wid * 0.45, '#ff1448', 0.45 * power, wid * 0.4);
-    capsule(-3, '#ff1e5c', 0.95 * power, 3);
-    capsule(wid * 0.18, '#ff90e0', power, 2.5);
-    capsule(wid * 0.34, '#fff2fc', 0.75 * power, 2);
+    capsule(-wid * 0.3, '#ff1448', 0.4 * power, wid * 0.3);
+    capsule(-2, '#ff1850', power, 1.6);
+    capsule(wid * 0.2, '#ff9ce4', power, 1.8);
+    capsule(wid * 0.32, '#fff4fc', 0.85 * power, 1.5);
     g.filter = 'none';
     g.globalAlpha = 1;
     return { canvas: c, pad, wid, len };
@@ -602,7 +597,7 @@
       ctx.lineTo(x1, y1);
       ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(24,14,58,0.92)';
+    ctx.fillStyle = 'rgba(58,16,80,0.9)';
     for (const [x, y, rx, ry, rot] of CROWD) {
       ctx.beginPath();
       ctx.ellipse(x, y, rx + 4, ry + 4, rot * DEG, 0, Math.PI * 2);
@@ -662,7 +657,7 @@
     g.drawImage(truss, 0, 0);
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
-    g.filter = 'blur(2.4px)';
+    g.filter = 'blur(3.5px)';
     g.drawImage(truss, 0, 0);
     g.filter = 'none';
     return far;
