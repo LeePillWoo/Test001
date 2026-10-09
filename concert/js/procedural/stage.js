@@ -3,7 +3,8 @@
 // 위치·크기·각도는 원본에서 잰 값(tools/proc_stage.py가 일부를 잰다)이고,
 // 색은 팔레트에서 골라 그라디언트·노이즈·흐림으로 칠한다. 배경은 인물보다 흐리게(ctx.filter blur) 둔다.
 //
-// 층 순서: far(바탕 번짐·빛 띠·트러스) → 빔 → near(관객·연무·LED 판·보케·조명기구) → 조명 → 색종이 → 응원봉
+// 층 순서: far(바탕 번짐·빛 띠) → 빔 → near(트러스·관객·연무·LED 판·보케·조명기구·
+// 머리카락 뒤 역광) → 조명 → 색종이 → 응원봉
 // far와 near는 prepare에서 한 장씩 미리 그리고, 움직이는 것만 스프라이트로 매 프레임 얹는다.
 // 디버그 주소 옵션: stage=far (바탕 한 장만), stage=beams (검은 바탕에 빔만)
 (function () {
@@ -66,7 +67,7 @@
     [120, 690, 50, 40, 0, '#4a2ab8', 0.8, 0.3],
     [10, 850, 50, 60, 0, '#d02860', 0.9, 0.3],
     // 인물 뒤 아래쪽 (팔과 머리카락 사이로 비치는 진홍)
-    [600, 1080, 110, 130, 0, '#d0105c', 0.85, 0.3],
+    [610, 1120, 120, 180, 0, '#d0105c', 0.85, 0.3],
     [880, 1180, 260, 110, 0, '#a8145a', 0.85, 0.3],
     [905, 1125, 35, 35, 0, '#c80c5a', 0.9, 0.3],
     [1015, 1075, 35, 45, 0, '#a01070', 0.9, 0.3],
@@ -91,9 +92,15 @@
     [250, -200, 69, 640, 95, 210, '#ff1438', 1, 24, 'source-over', 3, { fade: 0.78, haze: 0.12 }],
     [326, -10, 72, 320, 30, 100, '#ff4a50', 0.5, 14, 'lighter', 3],
     [300, 40, 78, 200, 30, 50, '#c01860', 0.5, 14, 'screen', 3],
-    // (430,215) 조명에서 왼쪽 아래로 퍼지는 파란 원뿔과 연보라 심
+    // (430,215) 조명에서 왼쪽 아래로 퍼지는 파란 원뿔과 또렷한 하늘색 심, 광원 가까이의 흰 심
     [430, 215, 125, 520, 20, 300, '#3a48ff', 1, 18, 'source-over', 4, { fadeIn: 0.35, fade: 0.8, haze: 0.1 }],
-    [430, 215, 129, 220, 12, 50, '#a0b0ff', 0.6, 8, 'screen', 4],
+    [430, 215, 127, 240, 12, 60, '#3a8cff', 1, 5, 'screen', 4, { fade: 0.55 }],
+    [430, 215, 127, 100, 6, 20, '#c8dcff', 0.9, 4, 'screen', 4, { fade: 0.3 }],
+    // 같은 조명에서 오른쪽(머리카락 쪽)으로 번지는 남보라 부채 (원본 (480-640, 180-235)의 띠,
+    // tools/proc_stage.py fan으로 잰 가운데 방향 약 -8°)
+    [430, 215, -6, 300, 12, 60, '#4430d8', 0.75, 7, 'source-over', 3,
+      { fadeIn: 0.4, fade: 0.75, haze: 0.15 }],
+    [430, 215, -8, 260, 6, 30, '#3a48ff', 0.5, 6, 'screen', 3, { fadeIn: 0.45, fade: 0.7, haze: 0.2 }],
     // 오른쪽 위로 비스듬한 파란 빛, 왼쪽 위 보라 빛줄기, 별빛 조명의 분홍 꼬리, 오른쪽 위 파란 조각
     [565, 150, 25, 220, 30, 120, '#2e44f0', 0.75, 14, 'screen', 3],
     [222, -30, 92, 150, 50, 70, PAL.violet, 0.3, 16, 'screen', 2],
@@ -103,21 +110,76 @@
     x, y, ang, len, w0, w1, color, a, soft, op, sweep, ...more,
   }));
 
-  // 트러스: 아래 현이 지나는 점들(원근으로 살짝 휜다), 두 현 사이 간격 d0→d1, 마디 수 n, 밝기 lit,
-  // 길이 방향 빛 받는 정도 glow [[비율, 세기]] — 빨간 빔과 이음매 조명 근처가 밝다.
-  // 아래 현의 위치는 원본 선 성분(DoG)과 겹쳐 보며 구간별로 맞췄다.
+  // 트러스: 가운데 선이 지나는 점들 pts, 두 현 사이 폭 d0→d1 (왼쪽 아래가 가까워 넓고 오른쪽 위로 좁아진다),
+  // 칸 수 n, 흐림 blur(초점이 먼 만큼). 길이 방향(s: 0..1) 표는 조각별 직선으로 잇는다.
+  //   face  빛 쪽(위)을 향한 삼각 면의 세기 — 원본 오른쪽 위 구간의 보라·분홍 삼각형
+  //   lit   부재의 밝은 모서리 세기, dark 어두운 부재의 불투명도 (빨간 빔 속에서는 옅다)
+  //   joint 마디의 흰분홍 빛 세기
+  //   col   [s, 면 색, 면 그늘 색, 부재 색] — 원본 띠 안 밝기 백분위 색을 구간별로 잼
+  // 위치와 폭은 원본의 선 성분에서 잼 (tools/proc_stage.py lines, truss): 구간마다 가장 밝은 직선을 이어
+  // 가운데 선을 정하고, 그 선을 따라 법선 방향 단면으로 폭을 확인했다.
   const TRUSSES = [
+    // 큰 트러스: 왼쪽 (40,238)에서 오른쪽 위 화면 밖까지. 광각이라 오른쪽으로 갈수록 가팔라진다.
+    // s 약 0.33~0.55가 빨간 빔 속, 0.7 이후가 분홍·보라 삼각 면이 또렷한 구간
     {
-      pts: [[40, 250], [150, 218], [300, 158], [430, 111], [550, 60], [650, 15], [720, -20]],
-      d0: 50,
-      d1: 42,
+      pts: [
+        [40, 238], [150, 214], [250, 190], [330, 158], [420, 119],
+        [520, 68], [610, 24], [700, -22], [740, -42],
+      ],
+      d0: 34,
+      d1: 24,
       n: 18,
-      lit: 1,
-      glow: [[0, 0.3], [0.25, 0.6], [0.4, 1], [0.55, 0.85], [0.66, 0.55], [0.74, 1], [0.86, 0.7], [1, 0.4]],
+      blur: 2.2,
+      face: [
+        [0, 0.45], [0.3, 0.4], [0.36, 0.12], [0.54, 0.12], [0.62, 0.7], [0.72, 1.2], [0.94, 1.2], [1, 0.7],
+      ],
+      lit: [[0, 0.95], [0.3, 0.85], [0.36, 0.6], [0.54, 0.6], [0.62, 0.6], [1, 0.45]],
+      dark: [[0, 0.8], [0.3, 0.75], [0.36, 0.35], [0.54, 0.35], [0.6, 0.85], [1, 0.85]],
+      joint: [[0, 0.35], [0.3, 0.5], [0.36, 1], [0.54, 1], [0.6, 0.7], [0.8, 0.9], [1, 0.6]],
+      col: [
+        [0, '#4a24c0', '#22105c', '#6038d0'],
+        [0.28, '#7a24b0', '#3a1460', '#8040d0'],
+        [0.38, '#fa4d80', '#a11444', '#ffa0b8'],
+        [0.54, '#fa4d80', '#a11444', '#ff98b8'],
+        [0.6, '#c02080', '#6a1050', '#d040a0'],
+        [0.68, '#b83cff', '#6a20d8', '#7a30c8'],
+        [0.82, '#c844ff', '#7424e0', '#8a38d8'],
+        [1, '#a838ff', '#6a20d8', '#7a30c8'],
+      ],
+    },
+    // 그 위 왼쪽의 작은 트러스: 빨간 빔 속으로 사라진다 (원본 (100-340, 95-185)의 보라 격자)
+    {
+      pts: [[90, 184], [200, 148], [350, 98]],
+      d0: 30,
+      d1: 26,
+      n: 7,
+      blur: 3.2,
+      face: [[0, 0.3], [0.7, 0.3], [1, 0]],
+      lit: [[0, 0.7], [0.7, 0.7], [1, 0.2]],
+      dark: [[0, 0.6], [0.7, 0.6], [1, 0.2]],
+      joint: [[0, 0.3], [0.7, 0.4], [1, 0.2]],
+      col: [
+        [0, '#5a1a9a', '#2a1050', '#7038c8'],
+        [0.7, '#7a1a9a', '#3a1050', '#a038c0'],
+        [1, '#f03060', '#801030', '#ff6080'],
+      ],
     },
     // 오른쪽 위 전광판을 받치는 짧은 트러스
-    { pts: [[1070, 120], [1170, 92], [1270, 60]], d0: 16, d1: 14, n: 9, lit: 0.36, glow: [[0, 1], [1, 1]] },
+    {
+      pts: [[1068, 112], [1168, 84], [1268, 52]],
+      d0: 16,
+      d1: 14,
+      n: 9,
+      blur: 1.2,
+      face: [[0, 0.5], [1, 0.5]],
+      lit: [[0, 0.6], [1, 0.6]],
+      dark: [[0, 0.6], [1, 0.6]],
+      joint: [[0, 0.3], [1, 0.3]],
+      col: [[0, '#ff40b0', '#6a1460', '#ff40b0'], [1, '#ff60d0', '#6a1460', '#ff60d0']],
+    },
   ];
+  // 트러스 둘레 번짐의 세기
+  const TRUSS_GLOW = 0.2;
   // 트러스 이음매의 작은 조명
   const JOINTS = [
     [522, 62, 15, PAL.pink], [579, 36, 14, PAL.orchid], [624, 12, 12, PAL.orchid],
@@ -125,12 +187,15 @@
     [357, 144, 7, PAL.pink], [555, 57, 8, PAL.orchid],
   ];
 
-  // LED 전광판: 중심, 크기, 회전°, 도트 간격, 무늬, 판 바탕색·꺼진 도트·켜진 도트 색
+  // LED 전광판: 중심, 크기, 회전°(또는 원근으로 기운 평행사변형 quad: [왼위, 오른위, 왼아래]),
+  // 도트 간격, 무늬, 판 바탕색·꺼진 도트·켜진 도트 색
+  // hot: [흰 심, 번짐 색, 반지름/간격] — 켜진 도트를 흰 심 스프라이트로 그린다. dimR: 꺼진 도트 반지름/간격
   const PANELS = [
     { cx: 100, cy: 310, w: 200, h: 78, ang: 16, pitch: 9.5, motif: 'scatter',
-      back: '#e0106e', dim: '#ff3cb0', lit: '#ffd0f8' },
-    { cx: 8, cy: 438, w: 340, h: 166, ang: 16.5, pitch: 10.5, motif: 'glyph',
-      back: '#f00c88', dim: '#ff1aa0', lit: '#ffc8f8' },
+      back: '#f00c80', dim: '#ff2a9c', lit: '#ffd0f8', dimR: 0.32, hot: ['#ffd8f4', '#ff58c0', 0.46] },
+    // 큰 판: 위 가장자리 (0,355)→(216,415), 오른쪽 가장자리 (216,415)→(152,553) (원본의 판 윤곽에서 잼)
+    { quad: [[-130, 319], [216, 415], [-194, 457]], pitch: 10.5, motif: 'glyph',
+      back: '#fc0a92', dim: '#ff30b8', lit: '#ffc8f8', dimR: 0.34, hot: ['#fff0ff', '#ff60e0', 0.48] },
     { cx: 1274, cy: 149, w: 320, h: 175, ang: -18, pitch: 13, motif: 'rows',
       back: '#e8106c', dim: '#ff1476', lit: '#ffc4f2' },
   ];
@@ -163,6 +228,8 @@
     { x: 564, y: 156, w: 28, h: 20, ang: 55, color: PAL.ice, glow: PAL.sky },
     { x: 475, y: 344, w: 48, h: 26, ang: -63, color: PAL.white, glow: PAL.pink },
     { x: 344, y: 211, w: 26, h: 12, ang: -57, color: PAL.blush, glow: PAL.hot },
+    // 트러스에 매달린 큰 조명 덩어리 (원본 (505-540, 45-80)의 흰분홍 덩어리)
+    { x: 524, y: 62, w: 38, h: 36, ang: -22, color: '#fb48ea', glow: '#fb40ea', core: '#ffd8fa' },
   ];
 
   // 색종이: 꼭짓점 목록(큰 조각은 원본 윤곽을 단순화), 색 두 가지(그라디언트), 흐림
@@ -214,17 +281,37 @@
     [1102, 1091, 3, 17, -3], [191, 815, 20, 4, -56], [197, 640, 13, 10, -63], [164, 810, 7, 8, -90],
     [13, 689, 30, 6, -76], [1246, 1105, 5, 26, -6],
   ];
-  // 관객 실루엣: 어두운 덩어리 타원 (tools/proc_stage.py crowd로 잰 값): x, y, rx, ry, 회전°
+  // 관객 실루엣: 원본의 어두운 덩어리(머리·어깨·팔)를 감싸는 타원: x, y, rx, ry, 회전°, 깊이
+  // (tools/proc_stage.py crowd 출력 그대로). 깊이는 어두운 정도로 나눴다:
+  // 0 먼 줄(주변보다 조금 어두운, 파란 빛 속의 옅은 남보라), 1 가운데 줄, 2 가까운 줄(또렷한 짙은 보라)
   const CROWD = [
-    [1194, 1157, 96, 58, -90], [142, 786, 63, 41, -84], [24, 736, 77, 26, -81], [1130, 1108, 34, 22, -90],
-    [159, 685, 15, 10, -63], [43, 802, 12, 7, -90], [1150, 1050, 12, 4, -90], [200, 759, 7, 6, -90],
-    [130, 678, 7, 6, -90],
+    [1224, 1186, 36, 68, -44, 2], [21, 762, 42, 21, -90, 2], [118, 806, 24, 20, -51, 2],
+    [33, 690, 32, 18, -54, 1], [1128, 1111, 22, 20, -14, 1], [169, 773, 34, 17, -58, 1],
+    [1161, 1183, 29, 12, -78, 1], [126, 756, 24, 10, -90, 1], [1164, 1243, 10, 29, -63, 1],
+    [1236, 1219, 27, 8, -78, 1], [1246, 1150, 16, 8, -90, 1], [160, 687, 12, 8, -66, 1],
+    [107, 831, 16, 7, -59, 1], [1185, 1117, 7, 11, -6, 1], [64, 588, 36, 41, -6, 0],
+    [190, 615, 25, 16, -45, 0], [141, 662, 31, 13, -61, 0], [1175, 1223, 11, 30, -18, 0],
+    [120, 592, 25, 11, -47, 0], [16, 602, 17, 16, -36, 0], [228, 631, 19, 14, -84, 0],
+    [65, 733, 9, 29, -1, 0], [1181, 1077, 26, 12, -54, 0], [43, 803, 20, 12, -87, 0],
+    [197, 668, 19, 11, -58, 0], [1149, 1048, 16, 9, -90, 0], [1227, 1114, 14, 13, -90, 0],
+    [174, 734, 14, 14, -90, 0], [1228, 1214, 7, 23, -19, 0], [1118, 1080, 14, 9, -82, 0],
+    [256, 630, 12, 8, -72, 0], [1115, 1002, 6, 14, -8, 0],
   ];
-  // 들어 올린 팔: 어깨(x0,y0) → 손(x1,y1), 굵기
+  // 들어 올린 팔: 어깨(x0,y0) → 손(x1,y1) (응원봉 손잡이 끝), 굵기, 깊이
   const ARMS = [
-    [45, 770, 80, 692, 18], [90, 900, 74, 858, 16], [20, 930, 1, 878, 14], [140, 810, 113, 734, 12],
-    [1200, 1320, 1217, 1262, 18], [1250, 1200, 1223, 1104, 14], [1150, 1260, 1129, 1195, 14],
-    [1160, 1150, 1142, 1088, 12], [170, 820, 146, 760, 12],
+    [48, 760, 80, 694, 14, 1], [90, 900, 74, 858, 16, 2], [20, 930, 1, 878, 14, 2],
+    [138, 800, 113, 734, 11, 1], [170, 820, 146, 760, 12, 2], [8, 770, 4, 721, 12, 2],
+    [40, 778, 44, 742, 9, 1], [0, 690, 7, 653, 10, 1], [185, 700, 190, 655, 10, 0],
+    [290, 672, 296, 632, 9, 0], [78, 662, 72, 622, 9, 0], [128, 650, 133, 612, 8, 0],
+    [1200, 1320, 1217, 1262, 18, 2], [1250, 1200, 1223, 1104, 14, 2], [1150, 1260, 1129, 1195, 14, 2],
+    [1160, 1150, 1142, 1088, 12, 1], [1118, 1102, 1123, 1060, 10, 1], [1172, 1106, 1166, 1062, 9, 1],
+    [1258, 1180, 1250, 1133, 10, 2],
+  ];
+  // 실루엣 색·불투명도·흐림 (깊이 0, 1, 2)
+  const CROWD_LOOK = [
+    { color: '#3a1678', a: 0.8, blur: 3.5 },
+    { color: '#2c1052', a: 0.85, blur: 3 },
+    { color: '#1e0c30', a: 0.92, blur: 2.5 },
   ];
   // 오른쪽 가장자리의 분홍 빛 띠: 시작, 끝, 굵기, 색, 세기
   const BANDS = [
@@ -233,6 +320,34 @@
     [1120, 512, 1290, 426, 22, '#ffa0d8', 0.75],
     [930, 872, 1290, 824, 46, '#ff1a70', 0.9],
     [1100, 858, 1290, 840, 16, '#ff8ad0', 0.6],
+  ];
+
+  // 머리카락 뒤 역광: 원본은 머리카락 틈마다 뒤에서 비치는 자홍 빛이 보인다.
+  // 공용 분석의 머리카락 윤곽을 erode px만큼 안으로 줄여(위쪽 가장자리 가까운 푸른 틈은 그대로 둔다)
+  // 흐린 뒤, 위 보라빛 자홍 → 아래 붉은 분홍의 세로 그라디언트로 칠한다.
+  // 아래쪽(haloY0→haloY1에서 점점)은 줄이지 않은 윤곽까지 칠해 머리카락 둘레로 빛이 번지게 한다.
+  // 정수리 쪽 틈은 원본에서 어두운 남색이라 위로 갈수록 사라지게 한다. stops: [y, 색, 세기]
+  const BACKLIGHT = {
+    erode: 20,
+    blur: 18,
+    alpha: 0.75,
+    haloY0: 380,
+    haloY1: 560,
+    stops: [[130, '#c01c9c', 0], [330, '#c01c9c', 1], [760, '#c81888', 1], [1254, '#e8145a', 1]],
+  };
+  // 머리카락 틈으로 보이는 파란 빛: 왼쪽 머리 덩어리의 비스듬한 틈 (원본 (460-590, 385-450),
+  // tools/proc_stage.py gaps로 잰 가운데 선). 이 길을 따라 자홍 역광을 지우고(cut 굵기)
+  // 파란 빛 띠(w 굵기, 심 core → 가장자리 edge)를 깐다.
+  const HAIR_GAPS = [
+    { pts: [[470, 440], [510, 424], [550, 412], [588, 390]], cut: 48, w: 26, core: '#6a80ff', edge: '#3a3ad0',
+    },
+  ];
+  // 역광 위에 얹는 진분홍 번짐 (아래 오른쪽 머리카락 틈과 그 오른쪽 띠): [x, y, rx, ry, 회전°, 색, 불투명도]
+  const BACKGLOW = [
+    [1020, 930, 120, 120, 0, '#f81e94', 0.9],
+    [940, 990, 60, 60, 0, '#f81e94', 0.9],
+    [1025, 950, 28, 130, -10, '#d0208a', 0.8],
+    [1090, 880, 70, 140, 0, '#d0187a', 0.8],
   ];
 
   // ── 작은 도우미 ────────────────────────────────────────
@@ -295,6 +410,17 @@
     return c;
   }
 
+  // 미리 그린 캔버스를 정지 비트맵으로 굳힌다. 캔버스를 그대로 drawImage하면 크로미움이 그리기 기록을
+  // 프레임마다 다시 래스터화할 수 있어(넓은 near 한 장에 약 15ms) 한 번 굳혀 둔다. 안 되면 캔버스 그대로 쓴다.
+  async function freeze(c) {
+    if (typeof createImageBitmap !== 'function') return c;
+    try {
+      return await createImageBitmap(c);
+    } catch (err) {
+      return c;
+    }
+  }
+
   // ── 빔 스프라이트: 광원이 왼쪽 가운데, +x 방향으로 퍼지는 원뿔 ─────────
   function makeBeam(env, b) {
     const pad = Math.ceil(b.soft * 3);
@@ -344,7 +470,7 @@
     const c = env.makeCanvas(R * 2, R * 2);
     const g = c.getContext('2d');
     g.translate(R, R);
-    glowDot(g, 0, 0, L.halo, L.color, 0.55 * L.a);
+    glowDot(g, 0, 0, L.halo, L.color, 0.62 * L.a);
     glowDot(g, 0, 0, L.r * 1.6, L.color, 0.9 * L.a);
     // 작은 조명은 흰 심 없이 제 색으로만 빛난다
     const coreColor = L.r >= 10 ? PAL.white : L.color;
@@ -443,62 +569,130 @@
 
   // ── LED 도트 판 ─────────────────────────────────────────
   // 왼쪽 큰 판의 흰 점 무늬(물음표 비슷한 두 글자): 화면 좌표의 굵은 획 [x0, y0, x1, y1, 반굵기]
+  // 원본의 가장 밝은 도트(초록 채널이 높은 흰분홍)가 이루는 획을 따라 잡았다.
   const GLYPH = [
-    [5, 377, 95, 381, 18],
-    [100, 390, 102, 452, 11],
-    [100, 461, 20, 462, 9],
-    [12, 370, 12, 470, 13],
-    [32, 470, 32, 515, 22],
-    [168, 446, 165, 535, 17],
-    [110, 539, 175, 540, 16],
+    // 물음표: 왼쪽 끝 → 위 고리 → 오른쪽으로 돌아 내려와 왼쪽 아래로 꺾이는 줄기
+    [6, 410, 10, 384, 15],
+    [10, 384, 42, 374, 15],
+    [42, 374, 80, 386, 14],
+    [80, 388, 94, 420, 17],
+    [94, 420, 82, 448, 18],
+    [82, 448, 46, 468, 17],
+    [46, 468, 32, 512, 17],
+    // 오른쪽 둘째 글자: 내려오는 줄기와 왼쪽으로 뻗는 발
+    [173, 440, 170, 495, 14],
+    [170, 495, 152, 522, 15],
+    [150, 540, 114, 544, 13],
   ];
   function segDist(px, py, [x0, y0, x1, y1]) {
     const dx = x1 - x0;
     const dy = y1 - y0;
-    const k = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy)));
+    const L = dx * dx + dy * dy;
+    const k = L ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / L)) : 0;
     return Math.hypot(px - x0 - dx * k, py - y0 - dy * k);
   }
 
-  // 무늬 함수: 화면 좌표(sx, sy), 판 좌표(u, v), 노이즈 n → 밝기 0..1
-  function panelMotif(kind, sx, sy, u, v, n) {
+  // 무늬 함수: 화면 좌표(sx, sy), 판 좌표(u, v), 노이즈 n, 도트별 난수 r → 밝기 0..1
+  function panelMotif(kind, sx, sy, u, v, n, r) {
     if (kind === 'glyph') {
       let m = 0;
-      for (const sgm of GLYPH) m = Math.max(m, 1 - (segDist(sx, sy, sgm) - sgm[4]) / 6);
-      return Math.max(0.06 + 0.12 * n, Math.min(1, m));
+      for (const sgm of GLYPH) m = Math.max(m, 1 - (segDist(sx, sy, sgm) - sgm[4]) / 7);
+      return Math.max(0, Math.min(1, m));
     }
-    if (kind === 'scatter') return n > 0.62 ? 0.75 : n > 0.5 ? 0.4 : 0.12;
+    // scatter: 시드로 고른 일부 도트만 켠다 (노이즈가 높은 곳에 몰리게)
+    if (kind === 'scatter') return r < 0.22 + 0.7 * n * n ? 0.35 + 0.6 * n : 0;
     // rows: 화면 오른쪽(바깥)으로 갈수록 하얗게 타오르는 줄무늬 화면
     const row = 0.5 + 0.5 * Math.sin(v * 22 + u * 3);
     const edge = Math.max(0, Math.min(1, (sx - 1130) / 115));
     return 0.1 + 0.9 * edge * edge + 0.25 * v + 0.3 * row * n;
   }
 
+  // 판의 좌표틀: 판 좌표 (0..w, 0..h) → 화면. 회전한 직사각형이나 평행사변형(quad)
+  function panelFrame(pn) {
+    let p0;
+    let u;
+    let v;
+    let w;
+    let h;
+    if (pn.quad) {
+      const [a, b, c] = pn.quad;
+      p0 = a;
+      w = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      h = Math.hypot(c[0] - a[0], c[1] - a[1]);
+      u = [(b[0] - a[0]) / w, (b[1] - a[1]) / w];
+      v = [(c[0] - a[0]) / h, (c[1] - a[1]) / h];
+    } else {
+      const ca = Math.cos(pn.ang * DEG);
+      const sa = Math.sin(pn.ang * DEG);
+      w = pn.w;
+      h = pn.h;
+      u = [ca, sa];
+      v = [-sa, ca];
+      p0 = [pn.cx - (w / 2) * ca + (h / 2) * sa, pn.cy - (w / 2) * sa - (h / 2) * ca];
+    }
+    const at = (x, y) => [p0[0] + x * u[0] + y * v[0], p0[1] + x * u[1] + y * v[1]];
+    const corners = [at(0, 0), at(w, 0), at(0, h), at(w, h)];
+    return {
+      w,
+      h,
+      at,
+      corners,
+      apply: (ctx) => ctx.transform(u[0], u[1], v[0], v[1], p0[0], p0[1]),
+    };
+  }
+
+  // 빛나는 도트 스프라이트: 흰 심 → 색 번짐 → 투명
+  function makeDot(env, r, core, halo) {
+    const R = Math.ceil(r * 1.6);
+    const c = env.makeCanvas(R * 2, R * 2);
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(R, R, 0, R, R, R);
+    grad.addColorStop(0, rgba(core, 1));
+    grad.addColorStop(0.36, rgba(core, 1));
+    grad.addColorStop(0.62, rgba(halo, 0.95));
+    grad.addColorStop(0.8, rgba(halo, 0.3));
+    grad.addColorStop(1, rgba(halo, 0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, R * 2, R * 2);
+    return { canvas: c, R };
+  }
+
   function drawPanel(env, ctx, pn) {
     const C = env.core;
     const noise = C.makeNoise2D(C.hashString('panel' + pn.motif) ^ env.seed);
-    const cols = Math.ceil(pn.w / pn.pitch);
-    const rows = Math.ceil(pn.h / pn.pitch);
+    const rng = env.rng('panel' + pn.motif);
+    const fr = panelFrame(pn);
+    const cols = Math.ceil(fr.w / pn.pitch);
+    const rows = Math.ceil(fr.h / pn.pitch);
     const dim = rgbOf(pn.dim);
     const lit = rgbOf(pn.lit);
-    const ca = Math.cos(pn.ang * DEG);
-    const sa = Math.sin(pn.ang * DEG);
+    // hot이 있는 판은 켜진 도트를 흰 심 스프라이트로, 꺼진 도트는 작은 색 점으로 그린다
+    const hot = pn.hot ? makeDot(env, pn.pitch * pn.hot[2], pn.hot[0], pn.hot[1]) : null;
     ctx.save();
-    ctx.translate(pn.cx, pn.cy);
-    ctx.rotate(pn.ang * DEG);
-    ctx.translate(-pn.w / 2, -pn.h / 2);
+    fr.apply(ctx);
     // 판 바탕 (빛이 번진 진분홍)
     ctx.fillStyle = rgba(pn.back, 0.9);
-    ctx.fillRect(0, 0, pn.w, pn.h);
+    ctx.fillRect(0, 0, fr.w, fr.h);
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const lx = (i + 0.5) * pn.pitch;
         const ly = (j + 0.5) * pn.pitch;
-        const ox = lx - pn.w / 2;
-        const oy = ly - pn.h / 2;
-        const sx = pn.cx + ox * ca - oy * sa;
-        const sy = pn.cy + ox * sa + oy * ca;
+        const [sx, sy] = fr.at(lx, ly);
         const n = C.fbm(noise, i * 0.23, j * 0.23, 3) * 0.5 + 0.5;
-        const m = C.clamp(panelMotif(pn.motif, sx, sy, i / cols, j / rows, n), 0, 1);
+        const m = C.clamp(panelMotif(pn.motif, sx, sy, i / cols, j / rows, n, rng()), 0, 1);
+        if (hot) {
+          ctx.globalAlpha = 0.6 + 0.4 * n;
+          ctx.fillStyle = pn.dim;
+          ctx.beginPath();
+          ctx.arc(lx, ly, pn.pitch * pn.dimR, 0, Math.PI * 2);
+          ctx.fill();
+          if (m > 0.02) {
+            ctx.globalAlpha = m;
+            ctx.drawImage(hot.canvas, lx - hot.R, ly - hot.R);
+          }
+          ctx.globalAlpha = 1;
+          continue;
+        }
         const col = [0, 1, 2].map((k) => dim[k] + (lit[k] - dim[k]) * m);
         ctx.fillStyle = rgba(col, 0.75 + 0.25 * m);
         ctx.beginPath();
@@ -532,75 +726,128 @@
     };
   }
 
-  function drawTruss(ctx, tr) {
+  // 조각별 직선 표 [[s, v], ...]에서 s의 값
+  function ramp(tab, s) {
+    let i = 0;
+    while (i < tab.length - 2 && s > tab[i + 1][0]) i++;
+    const [s0, v0] = tab[i];
+    const [s1, v1] = tab[i + 1];
+    return v0 + (v1 - v0) * Math.max(0, Math.min(1, (s - s0) / (s1 - s0 || 1)));
+  }
+  // 색 표 tr.col에서 s의 k번째 색 (1 면, 2 그늘, 3 부재)을 rgb 배열로
+  function rampColor(tab, s, k) {
+    let i = 0;
+    while (i < tab.length - 2 && s > tab[i + 1][0]) i++;
+    const c0 = hexRgb(tab[i][k]);
+    const c1 = hexRgb(tab[i + 1][k]);
+    const f = Math.max(0, Math.min(1, (s - tab[i][0]) / (tab[i + 1][0] - tab[i][0] || 1)));
+    return c0.map((v, j) => v + (c1[j] - v) * f);
+  }
+
+  // 트러스 한 개: 워런 트러스(지그재그 사재)의 상자 구조를 아래에서 올려다본 모습.
+  // 1) 빛 쪽 삼각 면(면 색 → 그늘 색 그라디언트) 2) 어두운 현·사재 3) 위로 살짝 비낀 밝은 모서리
+  // 4) 마디의 흰분홍 빛. 현의 굵기와 마디 빛의 크기는 폭(원근)에 비례한다.
+  function drawTruss(ctx, tr, rng) {
     const f = polyAt(tr.pts);
-    const at = (s, side) => {
-      const [x, y, nx, ny] = f(s);
-      const d = (tr.d0 + (tr.d1 - tr.d0) * s) * side;
+    const dAt = (s) => tr.d0 + (tr.d1 - tr.d0) * s;
+    // side +1: 위 현, -1: 아래 현 (polyAt의 법선은 선의 왼쪽 = 화면 위쪽)
+    const at = (s, side, lift = 0) => {
+      const [x, y, nx, ny] = f(Math.max(0, Math.min(1, s)));
+      const d = dAt(s) * (side / 2 + lift);
       return [x + nx * d, y + ny * d];
     };
-    const chord = (side, w, color) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      for (let i = 0; i <= 60; i++) {
-        const p = at(i / 60, side);
-        if (i) ctx.lineTo(p[0], p[1]);
-        else ctx.moveTo(p[0], p[1]);
+    const n = tr.n;
+    // 위 마디는 s = i/n, 아래 마디는 그 사이 (i+0.5)/n
+    const top = (i, lift) => at(i / n, 1, lift);
+    const bot = (i, lift) => at((i + 0.5) / n, -1, lift);
+    // 1) 삼각 면: 위 두 마디와 그 사이 아래 마디 (빛 쪽), 아래 두 마디와 그 사이 위 마디 (그늘 쪽)
+    for (let i = 0; i < n; i++) {
+      const sm = (i + 0.5) / n;
+      // 칸마다 빛을 고르지 않게: 몇 칸은 그늘에 든다
+      const jitter = rng() < 0.25 ? 0.3 : 0.75 + 0.25 * rng();
+      const tris = [[top(i), top(i + 1), bot(i), ramp(tr.face, sm) * jitter]];
+      if (i < n - 1) tris.push([bot(i), bot(i + 1), top(i + 1), ramp(tr.face, (i + 1) / n) * jitter * 0.12]);
+      for (const [p0, p1, p2, a] of tris) {
+        if (a < 0.02) continue;
+        const mx = (p0[0] + p1[0]) / 2;
+        const my = (p0[1] + p1[1]) / 2;
+        const g = ctx.createLinearGradient(mx, my, p2[0], p2[1]);
+        g.addColorStop(0, rgba(rampColor(tr.col, sm, 1), Math.min(1, a)));
+        g.addColorStop(0.45, rgba(rampColor(tr.col, sm, 1), Math.min(1, a) * 0.9));
+        g.addColorStop(1, rgba(rampColor(tr.col, sm, 2), Math.min(1, a) * 0.85));
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(p0[0], p0[1]);
+        ctx.lineTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        ctx.closePath();
+        ctx.fill();
       }
-      ctx.stroke();
-    };
-    const line = (a, b, w, color) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      ctx.moveTo(a[0], a[1]);
-      ctx.lineTo(b[0], b[1]);
-      ctx.stroke();
+    }
+    // 부재 목록: [시작, 끝, s, 굵기 배율] — 두 현은 칸마다 끊어 그려 길이 방향으로 색과 굵기를 바꾼다
+    const members = (lift) => {
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const s0 = i / n;
+        const sm = (i + 0.5) / n;
+        out.push([top(i, lift), top(i + 1, lift), s0 + 0.5 / n, 1]);
+        if (i < n - 1) out.push([bot(i, lift), bot(i + 1, lift), sm + 0.5 / n, 1]);
+        out.push([top(i, lift), bot(i, lift), sm, 0.6]);
+        if (i < n - 1) out.push([bot(i, lift), top(i + 1, lift), sm + 0.25 / n, 0.6]);
+      }
+      return out;
     };
     ctx.lineCap = 'round';
-    // 빛 받는 정도가 길이 방향으로 달라진다 (빨간 빔이 지나는 곳, 이음매 조명 근처가 밝다)
-    const p0 = tr.pts[0];
-    const p1 = tr.pts[tr.pts.length - 1];
-    const litGrad = (color, alpha) => {
-      const g = ctx.createLinearGradient(p0[0], p0[1], p1[0], p1[1]);
-      for (const [s, k] of tr.glow) g.addColorStop(s, rgba(color, alpha * k * tr.lit));
-      return g;
-    };
-    // 어두운 몸체(틈새 그림자) → 빛 받은 부재 → 밝은 모서리 순으로 겹친다
-    const passes = [
-      [2, 'rgba(18,8,40,0.6)'],
-      [1, litGrad('#c838d8', 0.95)],
-      [0.4, litGrad('#ff70e0', 0.85)],
-    ];
-    for (const [k, color] of passes) {
-      chord(0, 8 * k, color);
-      chord(1, 8 * k, color);
-      for (let i = 0; i < tr.n; i++) {
-        const s0 = i / tr.n;
-        const s1 = (i + 1) / tr.n;
-        line(at(s0, 0), at(s1, 1), 4.6 * k, color);
-        line(at(s0, 1), at(s1, 0), 4.6 * k, color);
-        line(at(s0, 0), at(s0, 1), 3.2 * k, color);
+    // 2) 어두운 부재
+    for (const [p0, p1, s, w] of members(0)) {
+      ctx.strokeStyle = rgba('#2a0e48', ramp(tr.dark, s));
+      ctx.lineWidth = (3 + dAt(s) * 0.16) * w;
+      ctx.beginPath();
+      ctx.moveTo(p0[0], p0[1]);
+      ctx.lineTo(p1[0], p1[1]);
+      ctx.stroke();
+    }
+    // 3) 밝은 모서리 (폭의 4%만큼 위로)
+    for (const [p0, p1, s, w] of members(0.04)) {
+      ctx.strokeStyle = rgba(rampColor(tr.col, s, 3), ramp(tr.lit, s));
+      ctx.lineWidth = (2 + dAt(s) * 0.08) * w;
+      ctx.beginPath();
+      ctx.moveTo(p0[0], p0[1]);
+      ctx.lineTo(p1[0], p1[1]);
+      ctx.stroke();
+    }
+    // 4) 마디 빛: 위·아래 마디마다, 시드로 세기를 흩는다
+    for (let i = 0; i <= n; i++) {
+      for (const [p, s] of [[top(i), i / n], [bot(i), (i + 0.5) / n]]) {
+        if (s > 1) continue;
+        const a = ramp(tr.joint, s) * (rng() < 0.5 ? 0.3 : 1);
+        const d = dAt(s);
+        glowDot(ctx, p[0], p[1], d * 0.3, rampColor(tr.col, s, 1), a * 0.6);
+        glowDot(ctx, p[0], p[1], 1.5 + d * 0.08, '#ffd0f0', a);
       }
     }
   }
 
-  // ── 관객 실루엣: 크게 흐려질 어두운 덩어리와 응원봉을 든 팔 ──────────
-  function drawCrowd(ctx) {
+  // ── 관객 실루엣: 머리·어깨와 응원봉을 든 팔 (깊이별로 한 장씩, 한 색으로 칠한 뒤 통째로 흐린다) ──────
+  function drawCrowd(ctx, depth) {
     ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(40,12,60,0.75)';
-    for (const [x0, y0, x1, y1, w] of ARMS) {
+    ctx.fillStyle = ctx.strokeStyle = CROWD_LOOK[depth].color;
+    for (const [x0, y0, x1, y1, w, d] of ARMS) {
+      if (d !== depth) continue;
       ctx.lineWidth = w;
       ctx.beginPath();
       ctx.moveTo(x0, y0);
       ctx.lineTo(x1, y1);
       ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(58,16,80,0.9)';
-    for (const [x, y, rx, ry, rot] of CROWD) {
+      // 응원봉을 쥔 주먹
       ctx.beginPath();
-      ctx.ellipse(x, y, rx + 4, ry + 4, rot * DEG, 0, Math.PI * 2);
+      ctx.arc(x1, y1, w * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const [x, y, rx, ry, rot, d] of CROWD) {
+      if (d !== depth) continue;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, rot * DEG, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -646,29 +893,47 @@
     g.drawImage(bands, 0, 0);
     g.globalAlpha = 1;
     g.filter = 'none';
-
-    // 트러스 (조금 흐린 먼 구조물)
-    const truss = env.makeCanvas(W, H);
-    const tg = truss.getContext('2d');
-    for (const tr of TRUSSES) drawTruss(tg, tr);
-    g.filter = 'blur(6px)';
-    g.globalCompositeOperation = 'screen';
-    g.globalAlpha = 0.6;
-    g.drawImage(truss, 0, 0);
-    g.globalAlpha = 1;
-    g.globalCompositeOperation = 'source-over';
-    g.filter = 'blur(3.5px)';
-    g.drawImage(truss, 0, 0);
-    g.filter = 'none';
     return far;
   }
 
   // 빔 앞에 놓이는 정적 요소 한 장 (투명 바탕):
-  // 트러스 이음매 조명, 관객석 붉은 번짐, 관객 실루엣, 연무, LED 판, 보케, 사각 조명기구
+  // 트러스와 이음매 조명, 관객석 붉은 번짐, 관객 실루엣, 연무, LED 판, 보케, 사각 조명기구,
+  // 머리카락 뒤 역광과 그 틈의 파란 빛
   function buildNear(env) {
     const { W, H } = env;
     const near = env.makeCanvas(W, H);
     const g = near.getContext('2d');
+    // 트러스: 빔 앞에 그린다 (빨간 빔 속 구간은 표에서 옅게 둔다). 살짝 흐린 뒤 넓은 번짐을 screen으로.
+    // 흐림이 비싸서 트러스마다 자기 둘레 상자만 한 캔버스에 그린다.
+    const trng = env.rng('truss');
+    for (const tr of TRUSSES) {
+      const pad = Math.max(tr.d0, tr.d1) + 40;
+      const xs = tr.pts.map((p) => p[0]);
+      const ys = tr.pts.map((p) => p[1]);
+      const x0 = Math.max(0, Math.floor(Math.min(...xs) - pad));
+      const y0 = Math.max(0, Math.floor(Math.min(...ys) - pad));
+      const x1 = Math.min(W, Math.ceil(Math.max(...xs) + pad));
+      const y1 = Math.min(H, Math.ceil(Math.max(...ys) + pad));
+      const truss = env.makeCanvas(x1 - x0, y1 - y0);
+      const tg = truss.getContext('2d');
+      tg.translate(-x0, -y0);
+      drawTruss(tg, tr, trng);
+      g.filter = `blur(${tr.blur}px)`;
+      g.drawImage(truss, x0, y0);
+      // 넓은 번짐은 1/4 크기에서 흐려 늘린다
+      const q = env.makeCanvas(Math.ceil(truss.width / 4), Math.ceil(truss.height / 4));
+      const qg = q.getContext('2d');
+      qg.filter = `blur(${(tr.blur * 3 + 4) / 4}px)`;
+      qg.drawImage(truss, 0, 0, q.width, q.height);
+      g.filter = 'none';
+      g.globalCompositeOperation = 'screen';
+      g.globalAlpha = TRUSS_GLOW;
+      g.drawImage(q, x0, y0, q.width * 4, q.height * 4);
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+    }
+    g.filter = 'none';
+
     for (const z of TINTS) softEllipse(g, z[0], z[1], z[2], z[3], z[4], z[5], z[6], 0.2);
     g.globalCompositeOperation = 'screen';
     for (const [x, y, r, c] of JOINTS) {
@@ -686,11 +951,26 @@
     g.drawImage(glow, 0, 0);
     g.filter = 'none';
 
-    // 관객 실루엣 (가장 흐리다)
+    // 관객 실루엣: 먼 줄 → 가까운 줄. 흐림은 관객이 있는 두 상자(왼쪽 아래·오른쪽 아래)에만 건다
     const crowd = env.makeCanvas(W, H);
-    drawCrowd(crowd.getContext('2d'));
-    g.filter = 'blur(7px)';
-    g.drawImage(crowd, 0, 0);
+    const cg = crowd.getContext('2d');
+    const boxes = [(x) => x < W / 2, (x) => x >= W / 2].map((side) => {
+      const xs = [];
+      const ys = [];
+      for (const [x, y, rx, ry] of CROWD) if (side(x)) xs.push(x - rx, x + rx), ys.push(y - ry, y + ry);
+      for (const [x0, y0, x1, y1] of ARMS) if (side(x0)) xs.push(x0, x1), ys.push(y0, y1);
+      const bx = Math.max(0, Math.min(...xs) - 30);
+      const by = Math.max(0, Math.min(...ys) - 30);
+      return [bx, by, Math.min(W, Math.max(...xs) + 30) - bx, Math.min(H, Math.max(...ys) + 30) - by];
+    });
+    CROWD_LOOK.forEach((look, depth) => {
+      cg.clearRect(0, 0, W, H);
+      drawCrowd(cg, depth);
+      g.filter = `blur(${look.blur}px)`;
+      g.globalAlpha = look.a;
+      for (const [x, y, w, h] of boxes) g.drawImage(crowd, x, y, w, h, x, y, w, h);
+    });
+    g.globalAlpha = 1;
     g.filter = 'none';
 
     // 연무
@@ -727,13 +1007,122 @@
       glowDot(g, 0, 0, Math.max(f.w, f.h) * 1.3, f.glow, 0.3);
       g.filter = 'blur(2px)';
       g.fillStyle = f.color;
+      // 흰 심(core)이 있는 덩어리는 제 색을 덮어 칠하고 가운데만 하얗게 빛난다
+      if (f.core) g.globalCompositeOperation = 'source-over';
       g.beginPath();
-      g.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, 4);
+      g.roundRect(-f.w / 2, -f.h / 2, f.w, f.h, 6);
       g.fill();
+      if (f.core) {
+        g.filter = 'blur(4px)';
+        g.fillStyle = f.core;
+        g.beginPath();
+        g.ellipse(0, 2, f.w * 0.28, f.h * 0.3, 0, 0, Math.PI * 2);
+        g.fill();
+        g.globalCompositeOperation = 'lighter';
+      }
       g.restore();
     }
     g.globalCompositeOperation = 'source-over';
+
+    const back = buildBacklight(env);
+    if (back) g.drawImage(back, 0, 0);
     return near;
+  }
+
+  // 점 목록을 이은 열린 Path2D
+  function polyPath(pts) {
+    const path = new Path2D();
+    pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+    return path;
+  }
+
+  // evenodd 고리 목록(납작한 [x0, y0, x1, y1, ...] 배열들)을 Path2D 하나로
+  function ringsPath(rings) {
+    const path = new Path2D();
+    for (const ring of rings) {
+      for (let i = 0; i + 1 < ring.length; i += 2) {
+        if (i) path.lineTo(ring[i], ring[i + 1]);
+        else path.moveTo(ring[i], ring[i + 1]);
+      }
+      path.closePath();
+    }
+    return path;
+  }
+
+  // 머리카락 뒤 역광 한 장 (공용 분석에 머리카락 윤곽이 없으면 진분홍 번짐만)
+  function buildBacklight(env) {
+    const { W, H } = env;
+    const rings = env.data && env.data.regions && env.data.regions.hair;
+    const out = env.makeCanvas(W, H);
+    const g = out.getContext('2d');
+    if (rings && rings.length) {
+      // 윤곽 채우기 → 경계선을 굵게 지워 안으로 줄이기 (+ 아래쪽은 줄이지 않은 윤곽) → 흐림 → 색 입히기
+      // 넓게 흐릴 가림판이라 절반 해상도로 만든다 (준비 시간 절약)
+      const k = 0.5;
+      const path = ringsPath(rings);
+      const m = env.makeCanvas(Math.round(W * k), Math.round(H * k));
+      const mg = m.getContext('2d');
+      mg.scale(k, k);
+      mg.fillStyle = '#fff';
+      mg.fill(path, 'evenodd');
+      mg.globalCompositeOperation = 'destination-out';
+      mg.lineJoin = 'round';
+      mg.lineWidth = BACKLIGHT.erode * 2;
+      mg.stroke(path);
+      const halo = env.makeCanvas(m.width, m.height);
+      const hg = halo.getContext('2d');
+      hg.scale(k, k);
+      hg.fillStyle = '#fff';
+      hg.fill(path, 'evenodd');
+      hg.globalCompositeOperation = 'destination-in';
+      const ramp = hg.createLinearGradient(0, BACKLIGHT.haloY0, 0, BACKLIGHT.haloY1);
+      ramp.addColorStop(0, 'rgba(255,255,255,0)');
+      ramp.addColorStop(1, '#fff');
+      hg.fillStyle = ramp;
+      hg.fillRect(0, 0, W, H);
+      mg.setTransform(1, 0, 0, 1, 0, 0);
+      mg.globalCompositeOperation = 'source-over';
+      mg.drawImage(halo, 0, 0);
+      // 파란 틈 자리는 자홍 역광을 지운다
+      mg.scale(k, k);
+      mg.globalCompositeOperation = 'destination-out';
+      mg.lineCap = 'round';
+      for (const gap of HAIR_GAPS) {
+        mg.lineWidth = gap.cut;
+        mg.stroke(polyPath(gap.pts));
+      }
+      const soft = env.makeCanvas(m.width, m.height);
+      const sg = soft.getContext('2d');
+      sg.filter = `blur(${BACKLIGHT.blur * k}px)`;
+      sg.drawImage(m, 0, 0);
+      g.imageSmoothingEnabled = true;
+      g.drawImage(soft, 0, 0, W, H);
+      g.globalCompositeOperation = 'source-in';
+      const st = BACKLIGHT.stops;
+      const y0 = st[0][0];
+      const y1 = st[st.length - 1][0];
+      const grad = g.createLinearGradient(0, y0, 0, y1);
+      for (const [y, c, a] of st) grad.addColorStop((y - y0) / (y1 - y0), rgba(c, a * BACKLIGHT.alpha));
+      g.fillStyle = grad;
+      g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = 'source-over';
+    }
+    for (const z of BACKGLOW) softEllipse(g, z[0], z[1], z[2], z[3], z[4], z[5], z[6], 0.25);
+    // 파란 틈: 넓고 흐린 가장자리 색 위에 좁고 밝은 심
+    g.lineCap = 'round';
+    for (const gap of HAIR_GAPS) {
+      const path = polyPath(gap.pts);
+      g.filter = 'blur(8px)';
+      g.strokeStyle = gap.edge;
+      g.lineWidth = gap.w * 1.5;
+      g.stroke(path);
+      g.filter = 'blur(4px)';
+      g.strokeStyle = gap.core;
+      g.lineWidth = gap.w * 0.6;
+      g.stroke(path);
+    }
+    g.filter = 'none';
+    return out;
   }
 
   // LED 판의 반짝임: 판 위 일부 도트만 밝게 빛나는 가산 레이어 (판을 감싸는 상자만 잘라 둔다)
@@ -741,24 +1130,21 @@
     const C = env.core;
     const boxes = [];
     for (const pn of PANELS) {
-      const ca = Math.abs(Math.cos(pn.ang * DEG));
-      const sa = Math.abs(Math.sin(pn.ang * DEG));
-      const hw = (pn.w * ca + pn.h * sa) / 2 + 8;
-      const hh = (pn.w * sa + pn.h * ca) / 2 + 8;
-      const x0 = Math.max(0, Math.floor(pn.cx - hw));
-      const y0 = Math.max(0, Math.floor(pn.cy - hh));
-      const x1 = Math.min(env.W, Math.ceil(pn.cx + hw));
-      const y1 = Math.min(env.H, Math.ceil(pn.cy + hh));
+      const fr = panelFrame(pn);
+      const xs = fr.corners.map((p) => p[0]);
+      const ys = fr.corners.map((p) => p[1]);
+      const x0 = Math.max(0, Math.floor(Math.min(...xs) - 8));
+      const y0 = Math.max(0, Math.floor(Math.min(...ys) - 8));
+      const x1 = Math.min(env.W, Math.ceil(Math.max(...xs) + 8));
+      const y1 = Math.min(env.H, Math.ceil(Math.max(...ys) + 8));
       const c = env.makeCanvas(x1 - x0, y1 - y0);
       const g = c.getContext('2d');
       const noise = C.makeNoise2D(C.hashString('sparkle' + pn.motif + phase) ^ env.seed);
       g.translate(-x0, -y0);
-      g.translate(pn.cx, pn.cy);
-      g.rotate(pn.ang * DEG);
-      g.translate(-pn.w / 2, -pn.h / 2);
+      fr.apply(g);
       g.filter = 'blur(1.5px)';
-      const cols = Math.ceil(pn.w / pn.pitch);
-      const rows = Math.ceil(pn.h / pn.pitch);
+      const cols = Math.ceil(fr.w / pn.pitch);
+      const rows = Math.ceil(fr.h / pn.pitch);
       for (let j = 0; j < rows; j++) {
         for (let i = 0; i < cols; i++) {
           const n = noise(i * 0.61, j * 0.61) * 0.5 + 0.5;
@@ -795,7 +1181,7 @@
   }
 
   P.stage = {
-    prepare(env) {
+    async prepare(env) {
       const rng = env.rng('stage');
       const state = {};
       state.far = buildFar(env);
@@ -830,7 +1216,7 @@
         const c = colors[Math.floor(rng() * colors.length)];
         const s = { pts, c0: c, c1: PAL.hot, blur: 0.8 + rng() * 1.6 };
         const sp = makeShard(env, s);
-        small.push({ sp, w: 0.6 + rng() * 1.4, vy: 18 + rng() * 26, a: 0.35 + rng() * 0.5 });
+        small.push({ sp, w: 0.6 + rng() * 1.4, vy: 18 + rng() * 26, a: 0.4 + rng() * 0.5 });
       }
       state.small = small;
       state.sticks = STICKS.map(([x0, y0, x1, y1, w, p]) => {
@@ -844,6 +1230,18 @@
           amp: 2 + rng() * 4,
         };
       });
+      // 정적인 장들과 스프라이트를 모두 굳힌다 (그림은 같고 프레임 비용만 준다)
+      const sprites = [
+        ...state.beams.map((o) => o.s),
+        ...state.lights.map((o) => o.s),
+        ...state.shards.map((o) => o.sp),
+        ...state.small.map((o) => o.sp),
+        ...state.sticks.map((o) => o.sp),
+        ...state.sparkle.flat(),
+      ];
+      [state.far, state.near] = await Promise.all([freeze(state.far), freeze(state.near)]);
+      const frozen = await Promise.all(sprites.map((sp) => freeze(sp.canvas)));
+      sprites.forEach((sp, i) => (sp.canvas = frozen[i]));
       return state;
     },
 

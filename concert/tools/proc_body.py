@@ -31,6 +31,8 @@ OUT_JS = os.path.join(HERE, '..', 'js', 'procedural', 'data', 'body.js')
 # ── 손으로 잰 다각형 (원본 픽셀 좌표) ──────────────────────
 # part: 이 안의 같은 종류(피부/드레스) 화소가 그 부위다 — 같은 종류 부위끼리의 경계를 정한다.
 # ext:  가려진 곳(hide)과 겹치는 만큼 부위를 넓힌다 — 머리카락 밑으로 이어지는 몸.
+# add:  마스크가 놓친 곳을 그대로 더한다 (손으로 잰 윤곽).
+# under: 이 안의 머리카락 밑은 넉넉히 부위로 채운다 (가닥 사이로 비치는 피부).
 # 왼쪽 어깨끈 중심선(팔과 몸통의 경계)
 STRAP_L = [(641, 470), (651, 510), (658, 535), (661, 570), (657, 600), (647, 630), (633, 670), (623, 690),
            (608, 710), (594, 728)]
@@ -40,13 +42,17 @@ COMPS = {
         part=[(655, 380), (1010, 380), (1010, 880), (600, 880), (585, 748)] + STRAP_L[::-1],
         ext=[(705, 390), (965, 395), (978, 470), (1003, 560), (1018, 660), (1008, 760), (962, 830),
              (900, 862), (600, 856), (566, 760), (596, 700), (622, 640), (634, 560), (628, 482), (676, 440)],
+        # 가슴 오른쪽 머리카락 밑: 가닥 사이로 피부가 비치므로 머리 밑을 이만큼 피부로 채운다
+        under=[(850, 586), (900, 596), (946, 636), (954, 700), (940, 732), (900, 748), (858, 724)],
         hide=('hair', 'face', 'straps', 'dress', 'arm'),
         close=9,
-        soft=4.5,  # 명암 경계 다듬기(가슴은 부드럽게)
+        soft=2.5,  # 명암 경계 다듬기
         outline=4.5,  # 가슴 오른쪽은 가닥 사이로 피부가 비친다: 가닥 단위 굴곡은 버린다
         hi=False,
-        eps=2.2,  # 각진 셀 그림자
-        simplify=3,
+        eps=3.5,  # 경계를 곧은 마디로 줄여 평면처럼 꺾이는 셀 그림자로
+        simplify=5,
+        qblur=2.5,  # 단계 번호 지도를 흐려 작은 얼룩·돌기를 없앤다
+        min_piece=2000,  # 이보다 작은 단계 조각·구멍(px²)은 버린다 (가닥 사이에서 생긴 얼룩)
     ),
     'arm': dict(
         kind='skin',
@@ -55,6 +61,9 @@ COMPS = {
         ext=[(445, 560), (468, 503), (520, 468), (566, 458), (612, 464), (646, 480), (656, 540), (520, 560)],
         hide=('hair', 'straps'),
         close=9,
+        soft=2.0,
+        qblur=3.5,
+        min_piece=300,
     ),
     'waist': dict(
         kind='skin',
@@ -96,6 +105,8 @@ COMPS = {
         kind='dress',
         part=[(0, 820), (165, 820), (190, 852), (150, 880), (128, 892), (110, 925), (82, 962), (40, 990),
               (0, 998)],
+        # 붉은 조명을 받는 가방 윗면은 배경 조명과 색이 같아 마스크에서 빠진다: 잰 능선까지 채운다
+        add=[(0, 893), (40, 868), (82, 843), (100, 851), (112, 846), (112, 880), (0, 912)],
         ext=[(0, 902), (40, 878), (80, 856), (118, 838), (160, 832), (178, 850), (150, 872), (128, 884),
              (110, 920), (82, 958), (40, 986), (0, 994)],
         hide=('hair',),
@@ -261,6 +272,10 @@ def build(debug=None):
         ext = poly(c['ext'], shape)
         full = vis | (closed & hide & part) | (ext & hide & ~soft) | (ext & soft & near)
         full |= infront & part & ext
+        if 'under' in c:
+            full |= poly(c['under'], shape) & soft
+        if 'add' in c:
+            full |= poly(c['add'], shape)
         # 몸 부위 안의 구멍은 늘 머리카락 그림자다. outline이 크면 가닥 하나하나의 들쭉날쭉함을 지운다
         full = ndi.binary_fill_holes(smooth(full, sigma=c.get('outline', 1.6)))
         comps[name] = full
@@ -299,9 +314,10 @@ def build(debug=None):
         hole = (full & ~vis).astype(np.uint8)
         q = cv2.inpaint((q * 40).astype(np.uint8), hole, 9, cv2.INPAINT_TELEA)
         q = cv2.medianBlur(q, 7).astype(np.float32) / 40
-        q = cv2.GaussianBlur(q, (0, 0), 2.2)
+        q = cv2.GaussianBlur(q, (0, 0), COMPS[name].get('qblur', 2.2))
         sg = COMPS[name].get('soft', 1.4)
-        ma = int(90 * sg * sg / 2)
+        min_piece = COMPS[name].get('min_piece', 0)
+        ma = max(int(90 * sg * sg / 2), min_piece)
         hi = smooth((q < 0.5) & vis, sigma=sg, min_area=ma) if COMPS[name].get('hi', True) else vis & False
         lv = [rings(hi, eps=1.2, min_area=90)]
         simp = COMPS[name].get('simplify', 0)
@@ -311,7 +327,7 @@ def build(debug=None):
                 bm = cv2.morphologyEx(bm.astype(np.uint8), cv2.MORPH_OPEN, ell(simp))
                 bm = cv2.morphologyEx(bm, cv2.MORPH_CLOSE, ell(simp)).astype(bool) & full
             bm = smooth(bm, sigma=sg, min_area=ma)
-            lv.append(rings(bm, eps=COMPS[name].get('eps', 1.2), min_area=90))
+            lv.append(rings(bm, eps=COMPS[name].get('eps', 1.2), min_area=max(90, min_piece)))
         bands[name] = lv
 
     data = {

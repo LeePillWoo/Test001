@@ -103,6 +103,16 @@
     return c;
   }
 
+  // 미리 그린 캔버스를 정지 비트맵으로 굳힌다 (프레임마다 다시 래스터화되지 않게). 안 되면 캔버스 그대로.
+  async function freeze(c) {
+    if (!c || typeof createImageBitmap !== 'function') return c;
+    try {
+      return await createImageBitmap(c);
+    } catch (err) {
+      return c;
+    }
+  }
+
   function makeGrain(env) {
     const n = GRAIN.size;
     const c = env.makeCanvas(n, n);
@@ -119,7 +129,7 @@
   }
 
   P.fx = {
-    prepare(env) {
+    async prepare(env) {
       const { W, H } = env;
       const sw = Math.round(W * BLOOM.scale);
       const sh = Math.round(H * BLOOM.scale);
@@ -165,8 +175,10 @@
         gg.globalAlpha = PROTECT.grade;
         gg.drawImage(protectFull, 0, 0);
       }
-      state.grade = grade;
-      state.protect = makeProtect(env, BLOOM.scale);
+      const protect = makeProtect(env, BLOOM.scale);
+      [state.grade, state.protect] = await Promise.all([freeze(grade), freeze(protect)]);
+      const frozen = await Promise.all(state.glints.map((gl) => freeze(gl.s.canvas)));
+      state.glints.forEach((gl, i) => (gl.s.canvas = frozen[i]));
       return state;
     },
 

@@ -4,14 +4,23 @@
     python3 concert/tools/proc_hair.py [--debug DIR]
 
 내보내는 것 (색 화소는 하나도 내보내지 않는다)
-    sil       머리 실루엣 (분석 마스크에서 가장자리의 푸른 배경 구멍을 뺀 것)
-    back      뒤 머리 실루엣: sil + 몸·얼굴 밑으로 조금 이어 그린 부분 (evenodd 고리)
-    front     몸·얼굴보다 앞에 다시 덮는 머리 (보이는 머리 전부에서 피부 위의 가는 조각만 뺀 것)
+    sil       머리 실루엣의 바깥 고리 (분석 마스크에서 가장자리의 푸른 배경을 빼고 6px 틈은 닫은 것,
+              바깥 실루엣에 18px 안으로 다가온 구멍은 바깥으로 터 준 것)
+    holes     실루엣 안의 구멍 고리 (300px² 미만은 메움, Chaikin으로 다듬음)
+    back      뒤 머리 실루엣: sil + 몸·얼굴 밑으로 조금 이어 그린 부분 (evenodd 고리, 몸이 덮지 않는 배경 틈은 뺌)
+    front     몸·얼굴보다 앞에 다시 덮는 머리 (보이는 머리 전부에서 피부 위의 가는 조각과 원본에서 잰 피부 틈을 뺀 것)
+    veil      피부가 가닥 사이로 비치는 구역 (아래 팔뚝, 허리 피부)
+    litPlane  빛 받는 다발(셀 하이라이트 면)의 윤곽 고리, litHi = 그 안의 가장 밝은 결의 윤곽 고리
+    litCore/litCoreW  빛 면 안의 긴 심 곡선(뼈대의 가장 긴 경로)과 점마다 반폭×2
+    lit/litW  빛 면이 되기엔 가는 빛 결의 중심선과 반폭×2 (덩어리마다 하나, 곁가지 없이)
+    sheenPlane, sheen/sheenW  그늘 안의 조금 밝은 결 (같은 형식)
+    midPlane  중간톤 다발 몸통(셀 그늘의 밝은 쪽 면)의 윤곽 고리
+    coolPlane 그늘 결에 무대의 파랑·보랏빛이 비친 곳의 윤곽 고리
     outer     바깥 배경 (머리카락 사이 작은 구멍은 뺀 것) — 역광 띠의 기준
     locks     굵은 다발 흐름선 (뿌리 → 끝)
     strands   가는 가닥 흐름선 (뿌리 → 끝)
     open      가닥마다 끝이 바깥 배경에 닿는지 (1 = 끝, 2 = 뿌리, 3 = 둘 다)
-    fly       실루엣 밖 배경을 가로지르는 잔머리 곡선
+    fly       실루엣 밖 배경을 가로지르는 잔머리 곡선 (꺾인 곳에서 잘라 매끈하게)
     cross     목·가슴 피부 위를 가로지르는 가는 머리카락 곡선, crossW = 곡선마다 반폭(px)
     ink       머리 안의 먹선 곡선 (다발 사이 어두운 가는 선), inkW = 곡선마다 반폭(px)
     gap       다발 사이 틈을 건너는 가는 가닥 흐름선
@@ -19,17 +28,23 @@
 방법
     1. 결 방향: 휘도의 Sobel 기울기로 구조 텐서를 만들고 머리 마스크 안에서 평활(σ 6), 일관도²로 가중해
        한 번 더 평활(σ 8). 결 = 기울기에 수직.
-    2. 흐름선: Jobard–Lefer 균등 간격 흐름선. RK2로 양방향 추적, 이미 그은 선과 d_test보다 가까워지면 멈춤.
-    3. 뿌리 쪽: 정수리(890, 200)에서 가까운 끝이 뿌리.
+    2. 흐름선: Jobard–Lefer 균등 간격 흐름선. RK2로 양방향 추적, 이미 그은 선과 d_test보다 가까워지거나
+       손으로 잰 가르마 선을 건너면 멈춤. 가르마 양옆에서 먼저 씨앗을 뿌린다.
+    3. 뿌리 쪽: 한쪽 끝만 가르마 가까이 있으면 그 끝, 아니면 정수리(890, 200)에서 가까운 끝이 뿌리.
     4. 잔머리: 머리 둘레 띠 안의 배경에서 가는 능선(채널별 헤시안)을 골라 뼈대를 따라간다.
        목·가슴 위 가닥도 같은 방법(어두운 능선)에 앞 영역의 가는 조각 뼈대를 더한다.
+    5. 셀 면: L*을 결 방향으로만 흐린 뒤(앞뒤 14px와 5px) 문턱으로 '빛 받는 다발'·'가장 밝은 결'·'윤기 결'·
+       '중간톤 몸통' 덩어리를, 색상각으로 '차가운 반사' 덩어리를 고른다. 넓은 덩어리는 윤곽 고리로, 가는 것은
+       뼈대의 가장 긴 경로(+ 거리 변환 반폭)로 낸다. 밝기·색 값은 내보내지 않는다 — 덩어리의 모양만.
+    6. 실루엣: 작은(400px² 미만)·가는 푸른 구멍은 머리로 되돌리고, 6px 틈을 닫고, 300px² 미만 구멍을 메우고,
+       정수리 윤곽을 σ2로 다듬고, 고리 잔머리 자리는 뺀다. 고리는 Chaikin으로 계단을 편다.
 같은 입력이면 언제나 같은 결과가 나온다(난수 시드 고정).
 """
 import argparse
 import json
 import math
 import os
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import cv2
 import numpy as np
@@ -44,6 +59,16 @@ MASKS = os.path.join(HERE, 'analysis')
 OUT_JS = os.path.join(HERE, '..', 'js', 'procedural', 'data', 'hair.js')
 
 SCALP = (890.0, 200.0)  # 뿌리 쪽을 정할 기준점 (정수리 가운데)
+# 가르마 (손으로 잰 꺾은선): 흐름선은 이 선을 넘지 않고, 이 선에서 가까운 끝이 뿌리다
+PART = [(935.0, 55.0), (940.0, 90.0), (945.0, 120.0)]
+# 정수리 위 고리 모양 잔머리 자리: 실루엣에서 빼고(속이 빈 고리를 덩어리로 칠하지 않게) 그리는 쪽에서 가는 선으로
+LOOP_CUT = [(910, 0), (1004, 0), (1004, 44), (960, 48), (910, 40)]
+MID_T = 18  # 중간톤 다발 몸통의 문턱 (결 방향으로 짧게 흐린 L*)
+LIT_HI = 60  # 빛 면 안에서 본색(가장 밝은 결)으로 칠할 문턱 (결 방향으로 짧게 흐린 L*)
+ANALYSIS_JS = os.path.join(HERE, '..', 'js', 'procedural', 'data', 'analysis.js')
+# 머리가 피부 위로 그물처럼 걸친 곳 (손으로 잰 아래 가운데 팔뚝): 덩어리로 칠하지 않고 가는 가닥으로만 그린다
+FOREARM = [(588, 1254), (640, 1130), (700, 1018), (745, 972), (905, 955), (905, 995), (840, 1052),
+           (780, 1108), (720, 1180), (668, 1254)]
 
 
 def load_mask(name):
@@ -142,7 +167,7 @@ def trace(field, grid, x, y, d_test, step=1.0, max_len=900, max_turn=0.5):
             nx, ny = cx + k2[0] * step, cy + k2[1] * step
             if k2[0] * px + k2[1] * py < math.cos(max_turn):
                 break
-            if not field.inside(nx, ny) or not grid.free(nx, ny, d_test):
+            if not field.inside(nx, ny) or not grid.free(nx, ny, d_test) or crosses_part(cx, cy, nx, ny):
                 break
             # 자기 자신에게 되돌아오는 고리 방지
             loop = False
@@ -161,6 +186,31 @@ def trace(field, grid, x, y, d_test, step=1.0, max_len=900, max_turn=0.5):
     return halves[1][::-1] + [(x, y)] + halves[0]
 
 
+def _ccw(a, b, c):
+    return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+
+
+def crosses_part(x0, y0, x1, y1):
+    """(x0, y0)→(x1, y1) 한 걸음이 가르마 선을 건너는지."""
+    if y1 > PART[-1][1] + 2 and y0 > PART[-1][1] + 2:
+        return False
+    a, b = (x0, y0), (x1, y1)
+    for c, d in zip(PART[:-1], PART[1:]):
+        if _ccw(a, c, d) != _ccw(b, c, d) and _ccw(a, b, c) != _ccw(a, b, d):
+            return True
+    return False
+
+
+def part_dist(p):
+    """점에서 가르마 꺾은선까지의 거리."""
+    best = 1e9
+    for (ax, ay), (bx, by) in zip(PART[:-1], PART[1:]):
+        vx, vy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((p[0] - ax) * vx + (p[1] - ay) * vy) / (vx * vx + vy * vy)))
+        best = min(best, math.hypot(p[0] - ax - vx * t, p[1] - ay - vy * t))
+    return best
+
+
 def streamlines(field, mask, d_sep, d_test, min_len, seed, max_len=900):
     rng = np.random.default_rng(seed)
     grid = Grid(d_sep)
@@ -170,6 +220,13 @@ def streamlines(field, mask, d_sep, d_test, min_len, seed, max_len=900):
     cand = list(zip(xs * int(d_sep * 2) + 0.5, ys * int(d_sep * 2) + 0.5))
     order = rng.permutation(len(cand))
     cand = [cand[i] for i in order]
+    # 가르마 양옆에서 먼저 씨앗을 뿌린다 (가닥이 가르마에서 시작해 양쪽으로 흘러내리게)
+    side = []
+    for (ax, ay), (bx, by) in zip(PART[:-1], PART[1:]):
+        for t in np.arange(0, 1, d_sep / math.hypot(bx - ax, by - ay)):
+            for off in (-d_sep * 0.6, d_sep * 0.6):
+                side.append((ax + (bx - ax) * t + off, ay + (by - ay) * t))
+    cand = side + cand
     queue = []
     ci = 0
     while True:
@@ -203,8 +260,11 @@ def streamlines(field, mask, d_sep, d_test, min_len, seed, max_len=900):
 
 
 def orient_root(pts):
-    """정수리에서 가까운 끝을 뿌리로."""
+    """뿌리 쪽 끝을 앞으로: 한쪽 끝만 가르마 가까이(25px) 있으면 그 끝, 아니면 정수리에서 가까운 끝."""
     a, b = pts[0], pts[-1]
+    pa, pb = part_dist(a) < 25, part_dist(b) < 25
+    if pa != pb:
+        return pts if pa else pts[::-1]
     da = math.hypot(a[0] - SCALP[0], a[1] - SCALP[1])
     db = math.hypot(b[0] - SCALP[0], b[1] - SCALP[1])
     return pts if da <= db else pts[::-1]
@@ -239,17 +299,61 @@ def resample(pts, step):
 
 
 # ── 영역 ──────────────────────────────────────────────────
-def rings(mask, eps=1.0, min_area=25):
-    cs, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+def chaikin(pts, it=2):
+    """닫힌 다각형의 모서리를 깎아 계단을 없앤다 (Chaikin)."""
+    p = np.asarray(pts, np.float64)
+    for _ in range(it):
+        q = np.roll(p, -1, axis=0)
+        p = np.stack([0.75 * p + 0.25 * q, 0.25 * p + 0.75 * q], 1).reshape(-1, 2)
+    return p
+
+
+def rings(mask, eps=1.0, min_area=25, smooth=0, part='all'):
+    """마스크 → 닫힌 고리들 (evenodd). part = 'all' | 'outer'(바깥 고리만) | 'holes'(구멍 고리만).
+    smooth > 0 이면 Chaikin을 그만큼 되풀이해 계단 무늬를 편다."""
+    cs, hier = cv2.findContours(mask.astype(np.uint8), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
     out = []
-    for c in cs:
+    for i, c in enumerate(cs):
+        is_hole = hier is not None and hier[0][i][3] >= 0
+        if (part == 'outer' and is_hole) or (part == 'holes' and not is_hole):
+            continue
         if abs(cv2.contourArea(c)) < min_area:
             continue
         ap = cv2.approxPolyDP(c, eps, True).reshape(-1, 2)
         if len(ap) < 3:
             continue
+        if smooth:
+            ap = chaikin(ap, smooth)
+            ap = cv2.approxPolyDP(np.round(ap * 2).astype(np.int32).reshape(-1, 1, 2), 0.8, True)
+            ap = (ap.reshape(-1, 2) / 2.0).round().astype(int)
         out.append([int(v) for v in ap.ravel()])
     return out
+
+
+def see_through(shape):
+    """피부가 머리카락 사이로 비치는 구역: 손으로 잰 팔뚝 + 공용 분석의 허리 피부(3px 깎은 것).
+    허리 피부 조각들의 볼록 껍질을 쓰면 그 옆을 덮은 불투명한 다발까지 삼키므로 피부 모양 그대로 쓴다."""
+    src = open(ANALYSIS_JS).read()
+    parts = json.loads(src[src.index('.data = ') + 8:src.rindex('}') + 1])['parts']
+    m = np.zeros(shape, np.uint8)
+    cv2.fillPoly(m, [np.array(FOREARM, np.int32)], 1)
+    w = np.zeros(shape, np.uint8)
+    cv2.fillPoly(w, [np.array(r, np.int32).reshape(-1, 2) for r in parts['waist']], 1)
+    m |= cv2.erode(w, disk(3))
+    return m.astype(bool)
+
+
+def skin_gaps(img, zone):
+    """비침 구역(팔뚝·허리) 안에서 다발 사이로 피부가 보이는 틈: 밝은(L* > 40) 덩어리의 모양만.
+    이 틈을 뺀 나머지는 보통 머리처럼 불투명하게 칠한다 (다발·결·먹선이 그대로 이어진다)."""
+    from skimage.color import rgb2lab
+    L = rgb2lab(img[:, :, ::-1].astype(np.float64) / 255.0)[..., 0]
+    g = zone & (L > 48)
+    g = cv2.morphologyEx(g.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(g.astype(np.uint8), connectivity=8)
+    keep = np.zeros(n, bool)
+    keep[1:] = st[1:, cv2.CC_STAT_AREA] >= 15
+    return keep[lab]
 
 
 def regions(hair, skin, face, dress):
@@ -280,7 +384,7 @@ def gap_strands(gray, hair, face, dress):
     gap = cv2.morphologyEx(gap.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
     c2, s2 = orientation(gray, envl)
     tm = cv2.dilate(gap.astype(np.uint8), disk(3)).astype(bool)
-    lines = streamlines(Field(c2, s2, tm), tm, d_sep=6.0, d_test=3.0, min_len=10, seed=3, max_len=300)
+    lines = streamlines(Field(c2, s2, tm), tm, d_sep=3.0, d_test=1.5, min_len=10, seed=3, max_len=300)
     return lines
 
 
@@ -303,6 +407,185 @@ def ink_lines(img, hair):
     return paths, widths
 
 
+def flow_blur(img, c2, s2, half=5):
+    """결 방향으로만 흐린다 (삼각 가중, 앞뒤 half px): 결을 따라 끊긴 밝은 조각이 한 가닥으로 이어진다."""
+    ang = 0.5 * np.arctan2(s2, c2)
+    dx, dy = np.cos(ang).astype(np.float32), np.sin(ang).astype(np.float32)
+    h, w = img.shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    acc = np.zeros_like(img)
+    wsum = 0.0
+    for k in range(-half, half + 1):
+        wk = 1.0 - abs(k) / (half + 1.0)
+        acc += wk * cv2.remap(img, xx + dx * k, yy + dy * k, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+        wsum += wk
+    return acc / wsum
+
+
+_OFF8 = [(-1, -1, 1.4142), (-1, 0, 1.0), (-1, 1, 1.4142), (0, -1, 1.0), (0, 1, 1.0),
+         (1, -1, 1.4142), (1, 0, 1.0), (1, 1, 1.4142)]
+
+
+def _diameter(S, start):
+    """뼈대 화소 집합 S 안의 가장 긴 측지 경로 (BFS 두 번). 반환: [(x, y), …]"""
+    def bfs(s):
+        prev, dist, q, far = {s: None}, {s: 0.0}, deque([s]), s
+        while q:
+            p = q.popleft()
+            for dy, dx, c in _OFF8:
+                n = (p[0] + dy, p[1] + dx)
+                if n in S and n not in prev:
+                    prev[n] = p
+                    dist[n] = dist[p] + c
+                    q.append(n)
+                    if dist[n] > dist[far]:
+                        far = n
+        return far, prev
+    a, _ = bfs(start)
+    b, prev = bfs(a)
+    path = []
+    while b is not None:
+        path.append((b[1], b[0]))
+        b = prev[b]
+    return path
+
+
+def long_paths(sk, min_len, branches=True):
+    """뼈대 → 덩어리마다 가장 긴 경로(지름). 짧은 곁가지(spur)는 버린다.
+    branches면 지름을 뺀 나머지에서 min_len 이상인 긴 가지도 되풀이해 뽑는다."""
+    lab, n = ndi.label(sk, structure=np.ones((3, 3)))
+    out = []
+    for i, sl in enumerate(ndi.find_objects(lab)):
+        ys, xs = np.nonzero(lab[sl] == i + 1)
+        S = set(zip((ys + sl[0].start).tolist(), (xs + sl[1].start).tolist()))
+        while len(S) >= min_len:
+            p = _diameter(S, min(S))
+            if path_len(p) < min_len:
+                break
+            out.append(p)
+            if not branches:
+                break
+            # 지름과 그 둘레 2px를 지우고 남은 조각들에서 다시
+            for x, y in p:
+                for dy in (-2, -1, 0, 1, 2):
+                    for dx in (-2, -1, 0, 1, 2):
+                        S.discard((y + dy, x + dx))
+            if not S:
+                break
+            sub = np.zeros(sk.shape, bool)
+            yy, xx = zip(*S)
+            sub[list(yy), list(xx)] = True
+            out.extend(long_paths(sub, min_len, branches))
+            break
+    return out
+
+
+def chaikin_open(p, it=2):
+    """열린 곡선의 Chaikin (끝점은 그대로)."""
+    p = np.asarray(p, np.float64)
+    for _ in range(it):
+        if len(p) < 3:
+            break
+        q = np.stack([0.75 * p[:-1] + 0.25 * p[1:], 0.25 * p[:-1] + 0.75 * p[1:]], 1).reshape(-1, 2)
+        p = np.concatenate([p[:1], q, p[-1:]])
+    return p
+
+
+def centreline(p, dt, step=3.0):
+    """화소 경로 → 매끈한 중심선(Chaikin ×2) + 점마다 반폭(5점 이동 평균). 3px 간격, 반폭은 2배 정수."""
+    w = np.array([dt[min(dt.shape[0] - 1, int(y)), min(dt.shape[1] - 1, int(x))] for x, y in p], np.float64)
+    a = np.array(smooth_path(p, k=5))
+    seg = np.sqrt(((a[1:] - a[:-1]) ** 2).sum(1))
+    s = np.concatenate([[0], np.cumsum(seg)])
+    n = max(2, int(round(s[-1] / step)) + 1)
+    t = np.linspace(0, s[-1], n)
+    x, y, ww = np.interp(t, s, a[:, 0]), np.interp(t, s, a[:, 1]), np.interp(t, s, w)
+    c = chaikin_open(np.stack([x, y], 1))
+    # Chaikin 뒤 점 수가 늘었으니 다시 같은 간격으로
+    seg = np.sqrt(((c[1:] - c[:-1]) ** 2).sum(1))
+    s2 = np.concatenate([[0], np.cumsum(seg)])
+    t2 = np.linspace(0, s2[-1], n)
+    x, y = np.interp(t2, s2, c[:, 0]), np.interp(t2, s2, c[:, 1])
+    if len(ww) >= 5:
+        ww = np.convolve(np.pad(ww, 2, mode='edge'), np.ones(5) / 5, mode='valid')
+    return ([int(round(v)) for xy in zip(x, y) for v in xy],
+            [int(round(min(14.0, max(0.5, v)) * 2)) for v in ww])
+
+
+def ribbons(M, min_len=25, gap=12, max_turn=0.44, branches=False):
+    """가는 덩어리 마스크 → 덩어리마다 긴 중심선 하나(곁가지 없이) + 점마다 반폭.
+    방향이 이어지는(25° 안) 끝끼리 12px 안이면 잇고, min_len보다 짧은 조각은 버린다."""
+    dt = cv2.distanceTransform(M.astype(np.uint8), cv2.DIST_L2, 5)
+    paths = long_paths(skeletonize(M), min_len=8, branches=branches)
+    paths = link_paths(paths, gap=gap, max_turn=max_turn)
+    out, widths = [], []
+    for p in paths:
+        if path_len(p) < min_len:
+            continue
+        c, w = centreline(p, dt)
+        out.append(c)
+        widths.append(w)
+    return out, widths
+
+
+def split_planes(M, dt_min=3.0, area_min=250):
+    """덩어리를 '면'(넓거나 큰 것: 윤곽 고리로)과 '가는 결'(뼈대 리본으로)로 나눈다."""
+    n, lab, st, _ = cv2.connectedComponentsWithStats(M.astype(np.uint8), connectivity=8)
+    dt = cv2.distanceTransform(M.astype(np.uint8), cv2.DIST_L2, 5)
+    mx = ndi.maximum(dt, lab, index=np.arange(n))
+    plane = np.zeros(n, bool)
+    for i in range(1, n):
+        plane[i] = mx[i] > dt_min or st[i, cv2.CC_STAT_AREA] > area_min
+    return plane[lab] & M, ~plane[lab] & M
+
+
+def lit_ridges(img, hair, c2, s2):
+    """셀 면의 모양: 머리 안의 '빛 받는 다발'(하이라이트 면)과 '윤기 결'(그늘 안의 조금 밝은 결).
+    밝기 값은 내보내지 않는다 — 어느 면에 속하는지(모양)만 재고, 색은 그리는 쪽 팔레트와 조명 구역이 정한다.
+    판정은 결 방향으로 길게(앞뒤 14px) 흐린 L*로:
+      빛 다발  L* > 40 이고 주변(σ10)보다 아주 어둡지 않음
+      윤기 결  빛 다발이 아니면서 L* > 22, 주변보다 7 이상 밝음
+    넓거나 큰 덩어리는 '면'(윤곽 고리 + 그 안의 긴 심 곡선들), 가는 것만 중심선 리본으로 낸다."""
+    from skimage.color import rgb2lab
+    L = rgb2lab(img[:, :, ::-1].astype(np.float64) / 255.0)[..., 0].astype(np.float32)
+    Lb = flow_blur(L, c2, s2, half=14)
+    Ls = flow_blur(L, c2, s2, half=5)
+    m = hair.astype(np.float32)
+    loc = cv2.GaussianBlur(L * m, (0, 0), 10) / (cv2.GaussianBlur(m, (0, 0), 10) + 1e-6)
+    k = np.ones((2, 2), np.uint8)
+    # 빛 면 = 길게 흐린 판정(결을 따라 이어진 다발) ∪ 짧게 흐린 판정(가는 밝은 결도 놓치지 않게)
+    lit = hair & (((Lb > 40) & (Lb - loc > -4)) | ((Ls > 40) & (Ls - loc > -4)))
+    lit = cv2.morphologyEx(lit.astype(np.uint8), cv2.MORPH_OPEN, k).astype(bool)
+    # 빛 면 안의 가장 밝은 결 (본색 단계): 짧게 흐린 L* > LIT_HI
+    hi = lit & (Ls > LIT_HI)
+    hi = cv2.morphologyEx(hi.astype(np.uint8), cv2.MORPH_OPEN, k).astype(bool)
+    sheen = hair & (Lb > 22) & (Lb - loc > 7) & ~cv2.dilate(lit.astype(np.uint8), k).astype(bool)
+    sheen = cv2.morphologyEx(sheen.astype(np.uint8), cv2.MORPH_OPEN, k).astype(bool)
+    # 중간톤 다발 몸통 (셀 그늘의 밝은 쪽 면): 짧게 흐린 L* > MID_T. 빛 면 밑에 깔린다
+    mid = hair & (Ls > MID_T)
+    mid = cv2.morphologyEx(mid.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    # 차가운 반사 (무대의 파랑·보랏빛이 그늘 결에 비친 곳): 색상각이 보랏빛·파랑 쪽인 덩어리의 모양만
+    Lab = rgb2lab(img[:, :, ::-1].astype(np.float64) / 255.0)
+    hue = np.degrees(np.arctan2(Lab[..., 2], Lab[..., 1]))
+    cool = hair & (L >= 12) & (hue < -30) & (np.hypot(Lab[..., 1], Lab[..., 2]) > 12) & ~lit
+    cool = cv2.morphologyEx(cool.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    lp, lt = split_planes(lit)
+    sp, st = split_planes(sheen, dt_min=2.5, area_min=180)
+    dt = cv2.distanceTransform(lp.astype(np.uint8), cv2.DIST_L2, 5)
+    cores = [centreline(p, dt) for p in long_paths(skeletonize(lp), min_len=30)]
+    return {
+        'litPlane': rings(lp, eps=1.5, min_area=40, smooth=2),
+        'litCore': [c for c, _ in cores],
+        'litCoreW': [w for _, w in cores],
+        'lit': ribbons(lt, min_len=8),
+        'litHi': rings(hi, eps=1.0, min_area=12, smooth=1),
+        'midPlane': rings(mid, eps=1.2, min_area=40, smooth=1),
+        'coolPlane': rings(cool, eps=1.2, min_area=30, smooth=1),
+        'sheenPlane': rings(sp, eps=1.5, min_area=40, smooth=2),
+        'sheen': ribbons(st, min_len=8),
+    }, lit | sheen
+
+
 def cross_strands(img, hair, skin, face, dress, thin):
     """목·가슴을 가로지르는 가는 머리카락: 앞 영역의 가는 조각 뼈대 + 피부 위의 어두운 가는 능선."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
@@ -316,7 +599,7 @@ def cross_strands(img, hair, skin, face, dress, thin):
     area &= ~cv2.dilate((edge | dress).astype(np.uint8), disk(7)).astype(bool)
     H = hessian_matrix(gray, sigma=1.0, order='rc', use_gaussian_derivatives=False)
     l1, _ = hessian_matrix_eigvals(H)
-    m = (np.where(area, np.maximum(l1, 0), 0) > 0.05) | thin
+    m = (np.where(area, np.maximum(l1, 0), 0) > 0.035) | thin
     paths = link_paths(trace_skeleton(skeletonize(m), min_len=6), gap=16, max_turn=0.7)
     paths = [p for p in paths if path_len(p) >= 30]
     # 반폭: 가는 조각 위를 지나는 선은 조각의 두께를 따른다 (능선만으로 찾은 선은 1px 안팎)
@@ -428,7 +711,45 @@ def refine_hair(img, hair):
     cut = hair & blue & (depth < 45)
     cut[620:] = False
     cut = cv2.morphologyEx(cut.astype(np.uint8), cv2.MORPH_OPEN, disk(2)).astype(bool)
-    return hair & ~cut
+    # 작은(400px² 미만)·가는(폭 8px 미만) 조각은 머리로 남긴다: 덩어리 안에 뚫린 타원 구멍처럼 보이므로
+    n, lab, st, _ = cv2.connectedComponentsWithStats(cut.astype(np.uint8), connectivity=8)
+    dt = cv2.distanceTransform(cut.astype(np.uint8), cv2.DIST_L2, 5)
+    keep = np.zeros(n, bool)
+    mx = ndi.maximum(dt, lab, index=np.arange(n))
+    for i in range(1, n):
+        keep[i] = st[i, cv2.CC_STAT_AREA] >= 400 and mx[i] >= 4
+    return hair & ~keep[lab]
+
+
+def open_holes(hair, outer, r=9, min_area=300):
+    """바깥 실루엣에서 2r px 안까지 다가온 구멍은 바깥으로 터 준다: 구멍과 바깥 배경 사이의 가는 머리 다리를 뺀다.
+    원본에서 이런 틈은 바깥으로 열려 있고 가는 가닥만 건너간다 (닫힌 타원 구멍은 '눈'처럼 보인다)."""
+    holes = ndi.binary_fill_holes(hair) & ~hair
+    lab, n = ndi.label(holes)
+    if not n:
+        return hair
+    area = ndi.sum(holes, lab, index=np.arange(1, n + 1))
+    big = np.concatenate([[False], area >= min_area])[lab]
+    bridge = (cv2.dilate(big.astype(np.uint8), disk(r)).astype(bool)
+              & cv2.dilate(outer.astype(np.uint8), disk(r)).astype(bool) & hair)
+    return hair & ~bridge
+
+
+def clean_hair(hair):
+    """실루엣 다듬기: 6px 안팎의 틈은 닫고, 300px² 미만의 구멍은 메운다. 정수리 위쪽 윤곽은 부드럽게."""
+    m = cv2.morphologyEx(hair.astype(np.uint8), cv2.MORPH_CLOSE, disk(3)).astype(bool)
+    holes = ndi.binary_fill_holes(m) & ~m
+    lab, n = ndi.label(holes)
+    if n:
+        area = ndi.sum(holes, lab, index=np.arange(1, n + 1))
+        small = np.concatenate([[False], area < 300])
+        m |= small[lab]
+    top = cv2.GaussianBlur(m.astype(np.float32), (0, 0), 2.0) > 0.5
+    m[:130] = top[:130]
+    cut = np.zeros(m.shape, np.uint8)
+    cv2.fillPoly(cut, [np.array(LOOP_CUT, np.int32)], 1)
+    m &= ~cut.astype(bool)
+    return m
 
 
 # ── 잔머리 ────────────────────────────────────────────────
@@ -445,7 +766,7 @@ def flyaways(img, hair, bg):
         rs.append(np.maximum(-l2, 0))
         rs.append(np.maximum(l1, 0))
     ridge = np.where(band, np.max(np.stack(rs), 0), 0)
-    m = ridge > 0.05
+    m = ridge > 0.035
     m = cv2.morphologyEx(m.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)).astype(bool)
     paths = link_paths(trace_skeleton(skeletonize(m), min_len=8), gap=9, max_turn=0.6)
     soft = cv2.GaussianBlur(f, (0, 0), 1.0)
@@ -466,8 +787,27 @@ def flyaways(img, hair, bg):
             q1 = np.clip(np.round(a[i] + nrm * 4), 0, [w - 1, h - 1]).astype(int)
             q2 = np.clip(np.round(a[i] - nrm * 4), 0, [w - 1, h - 1]).astype(int)
             diffs.append(np.abs(soft[q1[1], q1[0]] - soft[q2[1], q2[0]]).sum())
-        if diffs and np.median(diffs) < 0.35:
+        if diffs and np.median(diffs) < 0.42:
             out.append(p)
+    return out
+
+
+def split_kinks(paths, max_turn=0.6, span=8, min_len=25):
+    """곡선을 꺾인 곳(앞뒤 span px의 방향 차이 > max_turn)에서 자르고 짧은 조각은 버린다 (긁힌 자국 같은 잔머리 방지)."""
+    out = []
+    for p in paths:
+        a = np.array(p, np.float64)
+        cut = [0]
+        for i in range(span, len(a) - span):
+            u, v = a[i] - a[i - span], a[i + span] - a[i]
+            c = (u @ v) / (np.linalg.norm(u) * np.linalg.norm(v) + 1e-9)
+            if c < math.cos(max_turn) and i - cut[-1] > span:
+                cut.append(i)
+        cut.append(len(a))
+        for i0, i1 in zip(cut[:-1], cut[1:]):
+            q = [tuple(v) for v in a[i0:i1]]
+            if len(q) > 2 and path_len(q) >= min_len:
+                out.append(q)
     return out
 
 
@@ -539,11 +879,29 @@ def main():
     img = cv2.imread(REF)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     hair, skin, face, dress, bg = (load_mask(n) for n in ('hair', 'skin', 'face', 'dress', 'bg'))
-    refined = refine_hair(img, hair)
+    refined = clean_hair(refine_hair(img, hair))
     bg = (bg | (hair & ~refined)) & ~refined
     hair = refined
     outer = outer_background(bg)
+    opened = open_holes(hair, outer)
+    bg |= hair & ~opened
+    hair = opened
+    outer = outer_background(bg)
     back, front, thin = regions(hair, skin, face, dress)
+    # 앞 장의 고리: 머리 구멍은 메운다 (구멍은 그리는 쪽에서 부드럽게 비운다). 피부 위 가는 조각만 뺀다
+    front = ndi.binary_fill_holes(front) & ~thin
+    back = ndi.binary_fill_holes(back)
+    # 몸 밑으로 이어 그린 뒤 머리가 몸이 덮지 않는 배경 틈(예: 드레스 단과 팔뚝 사이의 분홍 틈)을 메우지 않게:
+    # 머리에서 4px 넘게 떨어진 배경(2px 깎은 것)은 뺀다
+    bg_in = cv2.erode(bg.astype(np.uint8), disk(2)).astype(bool)
+    leak = back & bg_in & ~cv2.dilate(hair.astype(np.uint8), disk(4)).astype(bool)
+    back &= ~leak
+    back = cv2.morphologyEx(back.astype(np.uint8), cv2.MORPH_OPEN, disk(1)).astype(bool)
+    print('back leak removed', int(leak.sum()), 'left', int((back & bg & ~hair).sum()))
+    veil = front & see_through(hair.shape)
+    veil = cv2.morphologyEx(veil.astype(np.uint8), cv2.MORPH_OPEN, disk(2)).astype(bool)
+    # 비침 구역도 보통 머리처럼 앞 장에 넣고, 원본에서 잰 피부 틈만 비운다
+    front = (front & ~veil) | (veil & ~skin_gaps(img, veil))
 
     # 결 방향장과 흐름선 (다발: 넓은 간격, 가닥: 좁은 간격)
     c2, s2 = orientation(gray, hair)
@@ -555,8 +913,10 @@ def main():
     strands = [orient_root(l) for l in strands]
 
     # 가는 선들: 잔머리, 틈 가닥, 먹선, 목·가슴 위 가닥
-    fly = [orient_root(f) for f in flyaways(img, hair, bg)]
+    fly = [orient_root(f) for f in split_kinks([smooth_path(f, k=9) for f in flyaways(img, hair, bg)])]
     gaps = [orient_root(p) for p in gap_strands(gray, hair, face, dress)]
+    shapes, _ = lit_ridges(img, hair, c2, s2)
+    (lit, lit_w), (sheen, sheen_w) = shapes['lit'], shapes['sheen']
     ink, ink_w = ink_lines(img, hair)
     ink = [orient_root(p) for p in ink]
     cross, cross_w = cross_strands(img, hair, skin, face, dress, thin)
@@ -565,29 +925,43 @@ def main():
     data = {
         'version': 1,
         'scalp': list(SCALP),
-        'sil': rings(hair),
-        'back': rings(back),
-        'front': rings(front),
+        'sil': rings(hair, part='outer', smooth=2),
+        'holes': rings(hair, part='holes', smooth=2, min_area=60),
+        'back': rings(back, smooth=2, min_area=60),
+        'front': rings(front, smooth=2),
+        'veil': rings(veil, smooth=2, min_area=60),
         'outer': rings(outer, eps=1.5, min_area=200),
         'locks': [resample(l, 5.0) for l in locks],
         'strands': [resample(l, 4.0) for l in strands],
         'open': openness(strands, outer),
-        'fly': [resample(smooth_path(f), 4.0) for f in fly],
+        'fly': [resample(f, 4.0) for f in fly],
         'gap': [resample(p, 4.0) for p in gaps],
+        'litPlane': shapes['litPlane'],
+        'litCore': shapes['litCore'],
+        'litCoreW': shapes['litCoreW'],
+        'litHi': shapes['litHi'],
+        'midPlane': shapes['midPlane'],
+        'coolPlane': shapes['coolPlane'],
+        'lit': lit,
+        'litW': lit_w,
+        'sheenPlane': shapes['sheenPlane'],
+        'sheen': sheen,
+        'sheenW': sheen_w,
         'ink': [resample(smooth_path(c), 5.0) for c in ink],
         'inkW': [round(w, 1) for w in ink_w],
         'cross': [resample(smooth_path(c), 4.0) for c in cross],
         'crossW': [round(w, 1) for w in cross_w],
     }
     js = ('// tools/proc_hair.py가 만든다. 직접 고치지 않는다.\n'
-          '// 머리카락의 기하만 담는다(색 없음): 실루엣·앞·뒤·바깥 배경(evenodd 고리), 다발·가닥 흐름선,\n'
-          '// 먹선·틈 가닥·잔머리·목 위 가닥 곡선(뿌리→끝). 좌표는 원본 1254×1254 픽셀.\n'
+          '// 머리카락의 기하만 담는다(색 없음): 실루엣·구멍·앞·뒤·비침·바깥 배경(고리), 다발·가닥 흐름선,\n'
+          '// 먹선·틈 가닥·잔머리·목 위 가닥 곡선(뿌리→끝), 빛 다발·윤기 결의 뼈대와 반폭. 좌표는 원본 픽셀.\n'
           '(window.ConcertProc = window.ConcertProc || {}).hairData = '
           + json.dumps(data, separators=(',', ':')) + ';\n')
     with open(OUT_JS, 'w') as f:
         f.write(js)
     print('locks', len(locks), 'strands', len(strands), 'fly', len(fly), 'cross', len(cross),
-          'ink', len(ink), 'gap', len(gaps),
+          'ink', len(ink), 'gap', len(gaps), 'lit', len(lit), 'sheen', len(sheen),
+          'litPlane', len(shapes['litPlane']), 'litCore', len(shapes['litCore']),
           'bytes', len(js), 'back rings', len(data['back']), 'front rings', len(data['front']))
 
     if args.debug:
