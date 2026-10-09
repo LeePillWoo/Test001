@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""모든 기법을 렌더해 원본과 비교하고 js/scores.js와 미리보기 이미지를 만든다.
+"""모든 기법을 렌더해 원본과 비교하고 js/scores.js와 비교 그림을 만든다.
 
     python3 concert/tools/score.py            # 전부
     python3 concert/tools/score.py strokes    # 일부만 (나머지 점수는 유지)
 
 js/scores.js 형식
     window.ConcertScores = { <id>: { ssim, ssim_small, dE, codeBytes, dataBytes, mountMs } }
-assets/thumbs/<id>.jpg 는 목록에 쓰는 작은 미리보기다.
+assets/lineup.jpg 는 README에 넣는 한 줄 비교 그림(원본 + 기법 순서대로)이다.
 """
 import json
 import os
@@ -20,7 +20,9 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SCORES = os.path.join(ROOT, 'js', 'scores.js')
-THUMBS = os.path.join(ROOT, 'assets', 'thumbs')
+LINEUP = os.path.join(ROOT, 'assets', 'lineup.jpg')
+REF = os.path.join(ROOT, 'assets', 'reference.jpg')
+PANEL = 300
 
 
 def method_ids():
@@ -51,10 +53,21 @@ def load_existing():
     return json.loads(m.group(1)) if m else {}
 
 
+def save_lineup(panels):
+    order = [Image.open(REF).convert('RGB').resize((PANEL, PANEL), Image.LANCZOS)]
+    order += [panels[k] for k in method_ids()]
+    gap = 6
+    strip = Image.new('RGB', (len(order) * PANEL + (len(order) - 1) * gap, PANEL), (12, 10, 22))
+    for i, im in enumerate(order):
+        strip.paste(im, (i * (PANEL + gap), 0))
+    strip.save(LINEUP, quality=85)
+    print('lineup →', LINEUP)
+
+
 def main():
     ids = sys.argv[1:] or method_ids()
     scores = load_existing()
-    os.makedirs(THUMBS, exist_ok=True)
+    panels = {}
     with tempfile.TemporaryDirectory() as tmp:
         for mid in ids:
             png = os.path.join(tmp, f'{mid}.png')
@@ -80,11 +93,11 @@ def main():
                 'dataBytes': data,
                 'mountMs': mount_ms,
             }
-            Image.open(png).convert('RGB').resize((240, 240), Image.LANCZOS).save(
-                os.path.join(THUMBS, f'{mid}.jpg'), quality=86
-            )
+            panels[mid] = Image.open(png).convert('RGB').resize((PANEL, PANEL), Image.LANCZOS)
             print(f"{mid}: ssim_small {m['ssim_small']}  dE {m['dE']}  code {code}B  data {data}B  mount {mount_ms}ms")
     ordered = {k: scores[k] for k in method_ids() if k in scores}
+    if set(panels) >= set(method_ids()):
+        save_lineup(panels)
     with open(SCORES, 'w', encoding='utf-8') as f:
         f.write('// tools/score.py가 만든다. 직접 고치지 않는다.\n')
         f.write('window.ConcertScores = ' + json.dumps(ordered, ensure_ascii=False, indent=2) + ';\n')
