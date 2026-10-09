@@ -35,7 +35,18 @@ src/game.js         게임 규칙 (보드 상태, 이동, 합치기, 판정)
 src/app.js          렌더링, 애니메이션, 키보드/스와이프 입력, 저장
 src/style.css       스타일 (라이트/다크 테마)
 test/game.test.js   규칙 테스트
+test/concert.test.js  concert 공용 도우미·기법 목록·스크립트 문법 테스트
+concert/            코드로 그린 무대 (concert/README.md)
 .github/workflows/test.yml    push와 PR마다 테스트 실행
+```
+
+## 코드로 그린 무대 (`concert/`)
+
+일러스트 한 장을 절차적 드로잉, 도형 최적화, 붓질 렌더링, 벡터 트레이싱, 신경망 기억, 다섯 가지 코드 기법으로
+다시 그리고 원본과 비교하는 페이지입니다. 자세한 내용은 [concert/README.md](concert/README.md)에 있습니다.
+
+```bash
+npm start          # http://localhost:8080/concert/
 ```
 
 ## 데모
