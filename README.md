@@ -50,6 +50,11 @@ concert/            코드로 그린 무대 (concert/README.md)
 npm start          # http://localhost:8080/concert/
 ```
 
+## 고양이 마법소녀 영상 (`motion/`)
+
+사진 한 장으로 만든 15초 세로(1080×1920) 변신 모션그래픽입니다. Remotion으로 만들었고 결과는
+[motion/out/nyang-magical-girl.mp4](motion/out/nyang-magical-girl.mp4)에 있습니다. 자세한 내용은 [motion/README.md](motion/README.md).
+
 ## 데모
 
 비공개 저장소라서 GitHub Pages 대신 Claude 아티팩트로 띄워 두었습니다.
