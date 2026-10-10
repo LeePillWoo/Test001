@@ -20,6 +20,8 @@ import layers from '../public/layers.json';
 import { BGM_SRC, T } from './cues';
 import { CostumeBack, CostumeFront, Pops } from './Costume';
 import { Kind, PASTEL, Shape } from './shapes';
+import { MeshLayer } from './MeshLayer';
+import { NECK, catDeform, catOverlay, childDeform, childHeadPose, childOverlay } from './rig';
 
 const IW = 1086;
 const IH = 1448;
@@ -72,13 +74,6 @@ function pops(f: number, fps: number): Pops {
   const p = (start: number) => spring({ frame: f - start, fps, config: { damping: 9, stiffness: 160, mass: 0.6 } });
   return { cape: p(252), collar: p(258), skirt: p(264), ribbon: p(270), ears: p(276), tail: p(282), cat: p(T.reveal + 6) };
 }
-
-const Layer: React.FC<{ src: string; box: number[]; style?: React.CSSProperties }> = ({ src, box, style }) => (
-  <Img
-    src={staticFile(src)}
-    style={{ position: 'absolute', left: box[0], top: box[1], width: box[2], height: box[3], ...style }}
-  />
-);
 
 // 화면을 가득 채우는 흐린 배경 (세로 화면 위아래 여백용)
 const Backdrop: React.FC<{ f: number }> = ({ f }) => {
@@ -320,7 +315,7 @@ const Child: React.FC<{ f: number; fps: number; p: Pops }> = ({ f, fps, p }) => 
         </div>
       )}
       <div style={{ position: 'absolute', inset: 0, filter: g > 0 ? `drop-shadow(0 0 ${20 + g * 50}px rgba(255,170,215,${0.4 + g * 0.6}))` : undefined }}>
-        <Layer src={after ? 'child_magic.png' : 'child.png'} box={CHILD} />
+        <MeshLayer src={after ? 'child_magic.png' : 'child.png'} box={CHILD} t={f / fps} deform={childDeform} overlay={childOverlay} />
         {g > 0 && (
           <div
             style={{
@@ -339,7 +334,7 @@ const Child: React.FC<{ f: number; fps: number; p: Pops }> = ({ f, fps, p }) => 
       </div>
       {after && (
         <div style={{ position: 'absolute', inset: 0, filter: `brightness(${1 + g * 1.6})` }}>
-          <CostumeFront pops={{ ...p, cat: 0 }} />
+          <CostumeFront pops={{ ...p, cat: 0 }} head={childHeadPose(f / fps)} neck={NECK} />
         </div>
       )}
     </div>
@@ -352,7 +347,7 @@ const Cat: React.FC<{ f: number; fps: number; p: Pops }> = ({ f, fps, p }) => {
   const anchor = `${CAT[0] + CAT[2] / 2}px ${CAT[1] + CAT[3]}px`;
   return (
     <div style={{ position: 'absolute', inset: 0, width: IW, height: IH, transformOrigin: anchor, transform: `translateY(${-happy * 16}px) scale(${1 + squash * 0.04}, ${1 - squash * 0.03})` }}>
-      <Layer src="cat.png" box={CAT} />
+      <MeshLayer src="cat.png" box={CAT} t={f / fps} deform={catDeform} overlay={catOverlay} />
       <div style={{ position: 'absolute', inset: 0 }}>
         <CostumeFront pops={{ cape: 0, collar: 0, skirt: 0, ribbon: 0, ears: 0, tail: 0, cat: p.cat }} />
       </div>
@@ -462,7 +457,6 @@ export const NyangMagic: React.FC = () => {
   const { fps } = useVideoConfig();
   const cam = camera(f);
   const p = pops(f, fps);
-  const photo = interpolate(f, [T.photoEnd - 6, T.photoEnd + 2], [1, 0], clamp);
   const intro = interpolate(f, [0, 10], [1, 0], clamp);
   return (
     <AbsoluteFill style={{ background: '#fde7f1', overflow: 'hidden' }}>
@@ -477,7 +471,6 @@ export const NyangMagic: React.FC = () => {
         <LightRibbons f={f} />
         <Orbit f={f} front />
         <Burst f={f} />
-        {photo > 0 && <Img src={staticFile('source.png')} style={{ position: 'absolute', left: 0, top: 0, width: IW, height: IH, opacity: photo }} />}
         {/* 사진 테두리: 세로 화면 위아래 흐린 배경과 경계를 부드럽게 */}
         <div style={{ position: 'absolute', inset: 0, boxShadow: '0 0 60px 30px rgba(255,220,238,0.55)', pointerEvents: 'none' }} />
       </div>

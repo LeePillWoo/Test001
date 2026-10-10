@@ -5,7 +5,8 @@
   "description": "15초 세로 모션그래픽: 고양이 마법소녀 변신 (Remotion)",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts NyangMagic out/nyang-magical-girl.mp4"
+    "render": "remotion render src/index.ts NyangMagic out/nyang-magical-girl.mp4",
+    "render:idle": "remotion render src/index.ts IdleLoop out/idle-loop.mp4"
   },
   "license": "MIT",
   "dependencies": {

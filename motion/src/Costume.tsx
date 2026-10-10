@@ -77,7 +77,11 @@ export const CostumeBack: React.FC<{ pops: Pops }> = ({ pops }) => (
   </svg>
 );
 
-export const CostumeFront: React.FC<{ pops: Pops }> = ({ pops }) => (
+export const CostumeFront: React.FC<{ pops: Pops; head?: { angle: number; rise: number }; neck?: { x: number; y: number } }> = ({
+  pops,
+  head = { angle: 0, rise: 0 },
+  neck = { x: 675, y: 560 },
+}) => (
   <svg viewBox="0 0 1086 1448" width={1086} height={1448} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}>
     <Defs />
     {/* 치마: 허리선에서 크게 퍼지는 2단 주름치마, 물결 밑단 */}
@@ -133,7 +137,8 @@ export const CostumeFront: React.FC<{ pops: Pops }> = ({ pops }) => (
         <ellipse key={i} cx={730 + dx} cy={777 + dy} rx={5.5} ry={6.5} fill={PINK} />
       ))}
     </g>
-    {/* 고양이 귀 머리띠 */}
+    {/* 고양이 귀 머리띠: 머리 갸웃·숨쉬기를 따라 움직인다 */}
+    <g transform={`translate(0 ${-head.rise}) rotate(${head.angle} ${neck.x} ${neck.y})`}>
     <g style={popStyle(pops.ears, 690, 190)}>
       <path d="M548 262 C580 172 690 140 800 172 C830 182 850 200 862 222" fill="none" stroke={LINE} strokeWidth={20} strokeLinecap="round" />
       <path d="M548 262 C580 172 690 140 800 172 C830 182 850 200 862 222" fill="none" stroke={PINK_L} strokeWidth={13} strokeLinecap="round" />
@@ -142,6 +147,7 @@ export const CostumeFront: React.FC<{ pops: Pops }> = ({ pops }) => (
       <path d="M738 152 L812 72 L826 176 Z" fill={WHITE} stroke={LINE} strokeWidth={5} strokeLinejoin="round" />
       <path d="M754 152 L806 100 L814 162 Z" fill={PINK} />
       <circle cx={700} cy={152} r={14} fill="url(#gold)" stroke={GOLD_D} strokeWidth={3} />
+    </g>
     </g>
     {/* 고양이도 리본 하나 */}
     <g style={popStyle(pops.cat, 238, 652)}>
