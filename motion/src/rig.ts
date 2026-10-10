@@ -3,16 +3,16 @@
 import type { Deform, Overlay } from './MeshLayer';
 
 const TAU = Math.PI * 2;
-const sstep = (e0: number, e1: number, x: number) => {
+export const sstep = (e0: number, e1: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
 };
 // 타원 안쪽 1, 바깥 0 으로 부드럽게
-const inEllipse = (x: number, y: number, cx: number, cy: number, rx: number, ry: number, soft = 0.35) => {
+export const inEllipse = (x: number, y: number, cx: number, cy: number, rx: number, ry: number, soft = 0.35) => {
   const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
   return 1 - sstep(1 - soft, 1, d);
 };
-const rotate = (x: number, y: number, px: number, py: number, deg: number): [number, number] => {
+export const rotate = (x: number, y: number, px: number, py: number, deg: number): [number, number] => {
   const a = (deg * Math.PI) / 180;
   const c = Math.cos(a) - 1;
   const s = Math.sin(a);
@@ -52,7 +52,7 @@ export const childDeform: Deform = (x, y, t) => {
 };
 
 // 눈 깜빡임: 6초 동안 두 번. 0→1→0 으로 감겼다 뜸 (한 번에 0.2초)
-const blinkAt = (t: number, times: number[], len = 0.2) => {
+export const blinkAt = (t: number, times: number[], len = 0.2) => {
   const u = ((t % 6) + 6) % 6;
   for (const b of times) {
     const d = (u - b) / len;
@@ -138,34 +138,56 @@ export const catDeform: Deform = (x, y, t) => {
 };
 
 // 고양이 눈꺼풀: 눈 위의 털 무늬를 그대로 끌어내려 덮는다 (단색으로 칠하면 줄무늬 위에서 티가 난다)
-function furLid(
+export function furLid(
   ctx: CanvasRenderingContext2D,
   map: (x: number, y: number) => [number, number],
   img: HTMLImageElement,
   box: number[],
   eye: { x: number; y: number; rx: number; ry: number },
-  p: number
+  p: number,
+  line = '#3b302b',
+  lineW = 4
 ) {
   const [cx, cy] = map(eye.x, eye.y);
   const cover = eye.ry * 2 * p;
   const yLine = cy - eye.ry + cover;
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, eye.rx, eye.ry, 0, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.beginPath();
-  ctx.rect(cx - eye.rx - 2, cy - eye.ry - 2, eye.rx * 2 + 4, cover + 2);
-  ctx.clip();
-  // 원본에서 눈 바로 위 털 띠를 cover만큼 아래로 밀어 그린다
-  const sx = eye.x - eye.rx - box[0];
-  const sy = eye.y - eye.ry - eye.ry * 2 - box[1];
-  ctx.drawImage(img, sx, sy, eye.rx * 2, eye.ry * 2, cx - eye.rx, cy - eye.ry - eye.ry * 2 + cover, eye.rx * 2, eye.ry * 2);
-  ctx.restore();
+  // 눈보다 조금 넓은 조각을 따로 그린 뒤 가장자리를 부드럽게 지워서 얹는다
+  const rx = eye.rx * 1.35;
+  const ry = eye.ry * 1.6;
+  const w = Math.ceil(rx * 2);
+  const h = Math.ceil(ry * 2);
+  const off = document.createElement('canvas');
+  off.width = w;
+  off.height = h;
+  const g = off.getContext('2d')!;
+  // 원본에서 눈 바로 위 띠를 cover만큼 아래로 밀어 그린다
+  const sx = eye.x - rx - box[0];
+  const sy = eye.y - ry - eye.ry * 2 - box[1];
+  g.drawImage(img, sx, sy, w, h, 0, cover - eye.ry * 2, w, h);
+  g.globalCompositeOperation = 'destination-in';
+  g.save();
+  g.translate(w / 2, h / 2);
+  g.scale(rx, ry);
+  const rg = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+  rg.addColorStop(0, 'rgba(0,0,0,1)');
+  rg.addColorStop(0.62, 'rgba(0,0,0,1)');
+  rg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = rg;
+  g.fillRect(-1, -1, 2, 2);
+  g.restore();
+  // 눈꺼풀 선 아래는 남기지 않는다 (아래쪽 2px는 부드럽게)
+  const lineIn = yLine - (cy - ry);
+  const lg = g.createLinearGradient(0, lineIn - 2, 0, lineIn + 2);
+  lg.addColorStop(0, 'rgba(0,0,0,1)');
+  lg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = lg;
+  g.fillRect(0, 0, w, h);
+  ctx.drawImage(off, cx - rx, cy - ry);
   ctx.beginPath();
   ctx.moveTo(cx - eye.rx * 0.85, yLine - 2);
   ctx.quadraticCurveTo(cx, yLine + eye.ry * 0.35 * p, cx + eye.rx * 0.85, yLine - 2);
-  ctx.strokeStyle = '#3b302b';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = line;
+  ctx.lineWidth = lineW;
   ctx.lineCap = 'round';
   ctx.stroke();
 }
