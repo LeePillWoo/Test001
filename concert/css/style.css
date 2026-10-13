@@ -1,0 +1,428 @@
+/* 레이아웃: 왼쪽에 무대(그림), 오른쪽에 무대 바닥에 테이프로 붙인 종이 셋리스트와 기법 설명.
+   좁은 화면에서는 그림 → 조작 → 셋리스트 → 설명 순으로 쌓인다.
+   공연장 어둠 하나로만 디자인한 단일 테마다. */
+:root {
+  --hall: #0c0a16;
+  --hall-raised: #161228;
+  --ink: #f2edf7;
+  --dim: #a39abb;
+  --rule: #2b2444;
+  --led: #ff4f9a;
+  --paper: #f5f4ef;
+  --marker: #19161f;
+  --marker-dim: #5b5666;
+  --highlighter: rgba(255, 79, 154, 0.5);
+  --tape: rgba(222, 214, 190, 0.78);
+
+  --f-display: 'Gasoek One', 'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --f-body: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --f-marker: 'Nanum Pen Script', 'IBM Plex Sans KR', 'Apple SD Gothic Neo', cursive;
+  --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  color-scheme: dark;
+}
+
+[hidden] {
+  display: none !important;
+}
+html,
+body {
+  margin: 0;
+  background: var(--hall);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app {
+  box-sizing: border-box;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-inline: 16px;
+  padding-block: 28px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 머리 */
+.top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 62ch;
+}
+.eyebrow {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--led);
+}
+.top h1 {
+  margin: 0;
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(40px, 8vw, 76px);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.lede {
+  margin: 0;
+  color: var(--dim);
+  font-size: 16px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+@media (min-width: 920px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 370px);
+    gap: 36px;
+  }
+}
+
+/* 무대 */
+.viewer {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stage {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: #000;
+  border-radius: 4px;
+  box-shadow: 0 30px 80px -30px rgba(255, 79, 154, 0.35);
+}
+.stage-scale {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1254px;
+  height: 1254px;
+  transform-origin: 0 0;
+}
+.stage-host,
+.stage-ref {
+  position: absolute;
+  inset: 0;
+  width: 1254px;
+  height: 1254px;
+  max-width: none;
+}
+.stage-host > canvas,
+.stage-host > svg,
+.stage-host > img {
+  position: absolute;
+  inset: 0;
+  width: 1254px;
+  height: 1254px;
+  max-width: none;
+}
+.stage-split {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  margin-left: -3px;
+  background: var(--ink);
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.6);
+}
+.stage-split span {
+  position: absolute;
+  top: 24px;
+  left: 18px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--hall);
+  font-size: 34px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stage-status {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(12, 10, 22, 0.78);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+}
+.compare {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--dim);
+}
+.compare-label {
+  white-space: nowrap;
+}
+.compare input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--led);
+}
+.buttons {
+  display: flex;
+  gap: 8px;
+}
+.btn {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--hall-raised);
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:hover {
+  border-color: var(--dim);
+}
+.btn-main {
+  min-width: 5.5em;
+  background: var(--led);
+  border-color: var(--led);
+  color: var(--hall);
+  font-weight: 600;
+}
+.btn-main:hover {
+  border-color: var(--ink);
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* 셋리스트: 무대 바닥에 테이프로 붙인 종이 */
+.side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.setlist {
+  position: relative;
+  background: var(--paper);
+  color: var(--marker);
+  padding: 26px 22px 18px;
+  transform: rotate(-0.8deg);
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.8);
+}
+.setlist::before,
+.setlist::after {
+  content: '';
+  position: absolute;
+  top: -10px;
+  width: 74px;
+  height: 22px;
+  background: var(--tape);
+}
+.setlist::before {
+  left: 18px;
+  transform: rotate(-6deg);
+}
+.setlist::after {
+  right: 18px;
+  transform: rotate(5deg);
+}
+.setlist h2 {
+  margin: 0 0 6px;
+  font-family: var(--f-marker);
+  font-weight: 400;
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+.setlist ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.setlist li + li {
+  border-top: 1px dashed rgba(25, 22, 31, 0.22);
+}
+.track {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 2.2em minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 10px 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.track .no {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  color: var(--marker-dim);
+}
+.track .name {
+  font-family: var(--f-marker);
+  font-size: 32px;
+  line-height: 1.05;
+  justify-self: start;
+  padding: 0 4px;
+  margin-left: -4px;
+}
+.track .score {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.track .sub {
+  grid-column: 2 / 4;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--marker-dim);
+}
+.track:hover .name {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+.track[aria-pressed='true'] .name {
+  background: linear-gradient(176deg, transparent 18%, var(--highlighter) 22%, var(--highlighter) 86%, transparent 90%);
+}
+.track:focus-visible {
+  outline: 2px dashed var(--marker);
+  outline-offset: 2px;
+}
+.setlist-foot {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--marker-dim);
+}
+
+/* 기법 설명 */
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.notes h2 {
+  margin: 0;
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: 28px;
+  line-height: 1.1;
+}
+.notes-uses {
+  margin: 0;
+  color: var(--dim);
+}
+.notes-how {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.notes-how:empty {
+  display: none;
+}
+.stats {
+  margin: 6px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.stats div {
+  background: var(--hall);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stats dt {
+  font-size: 12px;
+  color: var(--dim);
+}
+.stats dd {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.foot {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  color: var(--dim);
+  font-size: 13px;
+  max-width: 80ch;
+}
+.foot p {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setlist {
+    transform: none;
+  }
+}
+
+/* 하네스용: UI 없이 캔버스만 원본 크기로 */
+html.raw body {
+  overflow: hidden;
+}
+html.raw .app {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  display: block;
+}
+html.raw .top,
+html.raw .controls,
+html.raw .side,
+html.raw .foot,
+html.raw .stage-status {
+  display: none;
+}
+html.raw .layout {
+  display: block;
+}
+html.raw .stage {
+  width: 1254px;
+  height: 1254px;
+  aspect-ratio: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+html.raw .stage-scale {
+  transform: none !important;
+}
