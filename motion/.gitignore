@@ -1,0 +1,4 @@
+node_modules/
+public/photo/
+src/photo/
+out/photo-*

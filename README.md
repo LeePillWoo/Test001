@@ -35,8 +35,25 @@ src/game.js         게임 규칙 (보드 상태, 이동, 합치기, 판정)
 src/app.js          렌더링, 애니메이션, 키보드/스와이프 입력, 저장
 src/style.css       스타일 (라이트/다크 테마)
 test/game.test.js   규칙 테스트
+test/concert.test.js  concert 공용 도우미·기법 목록·스크립트 문법 테스트
+concert/            코드로 그린 무대 (concert/README.md)
 .github/workflows/test.yml    push와 PR마다 테스트 실행
 ```
+
+## 코드로 그린 무대 (`concert/`)
+
+일러스트 한 장을 절차적 드로잉, 도형 최적화, 붓질 렌더링, 벡터 트레이싱, 신경망 기억, 다섯 가지 코드 기법으로
+다시 그리고 원본과 비교하는 페이지입니다. 자세한 내용은 [concert/README.md](concert/README.md)에 있습니다.
+데모: https://claude.ai/artifact/2x6zAaiQygBoDyvbaLB1YH
+
+```bash
+npm start          # http://localhost:8080/concert/
+```
+
+## 고양이 마법소녀 영상 (`motion/`)
+
+사진 한 장으로 만든 15초 세로(1080×1920) 변신 모션그래픽입니다. Remotion으로 만들었고 결과는
+[motion/out/nyang-magical-girl.mp4](motion/out/nyang-magical-girl.mp4)에 있습니다. 자세한 내용은 [motion/README.md](motion/README.md).
 
 ## 데모
 
