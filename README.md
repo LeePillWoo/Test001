@@ -57,5 +57,9 @@ npm start          # http://localhost:8080/concert/
 
 ## 데모
 
-비공개 저장소라서 GitHub Pages 대신 Claude 아티팩트로 띄워 두었습니다.
-https://claude.ai/artifact/FpoYdEWn4J9LJqX3v5pvZj
+GitHub Pages (`gh-pages` 브랜치)로 배포합니다.
+
+- 2048: https://leepillwoo.github.io/Test001/
+- 코드로 그린 무대: https://leepillwoo.github.io/Test001/concert/
+- 고양이 마법소녀 영상: https://leepillwoo.github.io/Test001/motion/out/nyang-magical-girl.mp4
+- 6초 반복 대기 동작: https://leepillwoo.github.io/Test001/motion/out/idle-loop.mp4
